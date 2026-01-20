@@ -1,0 +1,32 @@
+[profile.default]
+src = "src"
+out = "out"
+libs = ["lib"]
+solc = "0.8.24"
+optimizer = true
+optimizer_runs = 200
+evm_version = "cancun"
+
+# Hedera Local Node / Solo RPC
+# NOTE: Both Local Node and Solo use port 7546 by default.
+# If running both simultaneously, you must configure different ports
+# or run them at different times to avoid proxy conflicts.
+[rpc_endpoints]
+localnode = "http://127.0.0.1:7546"
+solo = "http://127.0.0.1:7546"
+
+# Fuzz testing settings
+[profile.default.fuzz]
+runs = 256
+max_test_rejects = 65536
+
+# Invariant testing
+[profile.default.invariant]
+runs = 256
+depth = 15
+
+# Format settings
+[fmt]
+line_length = 100
+tab_width = 4
+bracket_spacing = true

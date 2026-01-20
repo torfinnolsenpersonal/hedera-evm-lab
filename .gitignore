@@ -1,0 +1,53 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Build outputs
+dist/
+build/
+out/
+artifacts/
+cache/
+typechain-types/
+
+# Foundry
+broadcast/
+**/lib/forge-std/
+**/out/
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+network-logs/
+
+# Testing
+coverage/
+coverage.json
+.nyc_output/
+
+# Cloned repos (these are fetched by scripts)
+repos/
+
+# Solo/Kubernetes
+.solo/
+
+# Temporary files
+*.tmp
+*.temp
+.cache/
