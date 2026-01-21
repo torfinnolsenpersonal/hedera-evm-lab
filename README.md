@@ -234,7 +234,7 @@ See `docs/06-troubleshooting.md` for comprehensive troubleshooting guide.
 
 1. **Default path**: `~/hedera-evm-lab` (configurable via clone location)
 2. **Primary OS**: macOS/Linux (WSL2 for Windows)
-3. **Local Node preferred** for quick development
+3. **Local Node ** is beginning the deprecation process
 4. **Solo** for production-like testing or multi-node scenarios
 5. **PowerShell scripts** provided for Windows native (but WSL2 recommended)
 
