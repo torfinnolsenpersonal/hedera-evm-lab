@@ -93,7 +93,7 @@ Run `./scripts/doctor.sh` to verify your setup.
 | Startup Time | ~2-3 min | ~5-10 min |
 | Memory | 8 GB min | 12 GB min |
 | Multi-node | Limited | Full support |
-| CI/CD | Excellent | Good |
+| CI/CD | Full support | Full support |
 | Use Case | Development | Production-like testing |
 
 See `docs/02-solo-vs-local-node-gap-analysis.md` for detailed comparison.
