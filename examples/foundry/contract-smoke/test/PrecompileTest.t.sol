@@ -76,13 +76,13 @@ contract PrecompileTestTest is Test {
     function test_Ripemd160() public view {
         bytes20 hash = precompileTest.computeRipemd160(bytes("hello"));
         // Known RIPEMD-160 hash of "hello"
-        assertEq(hash, bytes20(0x108f07b8382412612c048d07d13f814118445acd));
+        assertEq(hash, bytes20(0x108F07B8382412612c048d07D13f814118445acD));
     }
 
     function test_Ripemd160Empty() public view {
         bytes20 hash = precompileTest.computeRipemd160(bytes(""));
         // Known RIPEMD-160 hash of empty string
-        assertEq(hash, bytes20(0x9c1185a5c5e9fc54612808977ee8f548b2258d31));
+        assertEq(hash, bytes20(0x9c1185A5C5E9Fc54612808977ee8F548B2258D31));
     }
 
     // ============ Identity Precompile Tests (Precompile 0x04) ============
