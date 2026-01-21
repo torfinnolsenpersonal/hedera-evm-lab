@@ -89,12 +89,12 @@ Run `./scripts/doctor.sh` to verify your setup.
 
 | Feature | Local Node | Solo |
 |---------|------------|------|
-| Setup | Simple (Docker) | Complex (Kubernetes) |
+| Setup | Simple (Docker) | Kubernetes-based |
 | Startup Time | ~2-3 min | ~5-10 min |
 | Memory | 8 GB min | 12 GB min |
 | Multi-node | Limited | Full support |
-| CI/CD | Full support | Full support |
-| Use Case | Development | Production-like testing |
+| CI/CD | Full support | Full support (more widely utilized) |
+| Use Case | Quick development | Production-like testing |
 
 See `docs/02-solo-vs-local-node-gap-analysis.md` for detailed comparison.
 

@@ -215,7 +215,17 @@ git config --global core.autocrlf input
 solo: command not found
 ```
 
-**Fix:**
+**Fix (Homebrew - Recommended):**
+```bash
+brew tap hiero-ledger/tools
+brew install solo
+
+# Verify
+which solo
+solo --version
+```
+
+**Alternative Fix (npm):**
 ```bash
 npm install -g @hashgraph/solo
 

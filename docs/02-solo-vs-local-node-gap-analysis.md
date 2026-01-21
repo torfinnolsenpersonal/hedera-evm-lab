@@ -1,16 +1,55 @@
-# Solo vs Hiero Local Node: Gap Analysis for Simulated Network Testing
+# Solo vs Hiero Local Node: Gap Analysis for EVM Smart Contract Execution
 
-This document provides a comprehensive comparison between Solo and Hiero Local Node for developers choosing a local Hedera test network.
+This document provides a gap analysis focused on **EVM smart contract execution** between Solo and Hiero Local Node for developers building Hedera-compatible smart contracts.
 
 ## Executive Summary
 
 | Aspect | Local Node | Solo | Recommendation |
 |--------|------------|------|----------------|
-| **Setup Complexity** | Simple (Docker Compose) | Complex (Kubernetes) | Local Node for quick start |
+| **Setup Complexity** | Simple (Docker Compose) | Moderate (Kubernetes) | Either works well |
 | **Resource Usage** | Lower (8GB RAM min) | Higher (12GB RAM min) | Local Node for constrained systems |
-| **Feature Parity** | Single node only | Single or multi-node | Solo for consensus testing |
-| **CI/CD Suitability** | Excellent | Good (needs k8s) | Local Node for most CI |
-| **Production Similarity** | Lower | Higher | Solo for production-like testing |
+| **EVM Feature Parity** | Full | Full | Both fully support EVM |
+| **CI/CD Suitability** | Good | Good | Both work well in CI/CD |
+| **Production Similarity** | Good | Excellent | Solo for production-like testing |
+
+## EVM Smart Contract Execution: Gap Analysis
+
+Both Solo and Local Node provide **identical EVM execution environments** through the Hedera JSON-RPC Relay. There are no functional gaps for standard EVM smart contract development.
+
+### EVM Feature Parity
+
+| EVM Feature | Local Node | Solo | Notes |
+|-------------|------------|------|-------|
+| **Contract Deployment** | Full support | Full support | CREATE, CREATE2 |
+| **State Management** | Full support | Full support | SLOAD, SSTORE |
+| **Events/Logs** | Full support | Full support | LOG0-LOG4 |
+| **Value Transfers** | Full support | Full support | CALL with value |
+| **Precompiles (0x01-0x09)** | Full support | Full support | ecrecover, sha256, etc. |
+| **Hedera Precompiles** | Full support | Full support | HTS, PRNG, Exchange Rate |
+| **ERC-20/721/1155** | Full support | Full support | Standard token contracts |
+| **Gas Estimation** | Full support | Full support | eth_estimateGas |
+| **Transaction Receipts** | Full support | Full support | eth_getTransactionReceipt |
+
+### Hedera-Specific EVM Features
+
+| Feature | Local Node | Solo | Notes |
+|---------|------------|------|-------|
+| **HTS Precompile (0x167)** | Yes | Yes | Token operations |
+| **Exchange Rate (0x168)** | Yes | Yes | HBAR/USD conversion |
+| **PRNG (0x169)** | Yes | Yes | Pseudorandom generation |
+| **Chain ID 298** | Yes | Yes | Hedera local networks |
+| **3-5 second finality** | Yes | Yes | Faster than Ethereum |
+
+### When to Use Each for EVM Development
+
+| Scenario | Recommendation |
+|----------|----------------|
+| Rapid contract iteration | Either |
+| Hardhat/Foundry tests | Either |
+| ERC-20/721 development | Either |
+| Hedera precompile testing | Either |
+| Production CI pipeline | Solo (more widely utilized) |
+| Multi-signer scenarios | Solo |
 
 ## Feature Matrix
 
@@ -104,9 +143,10 @@ hedera start
 # Ready in ~2-3 minutes
 ```
 
-**Solo:**
+**Solo (Homebrew - Recommended):**
 ```bash
-npm install -g @hashgraph/solo
+brew tap hiero-ledger/tools
+brew install solo
 kind create cluster -n solo
 solo one-shot single deploy
 # Ready in ~5-10 minutes
@@ -203,6 +243,8 @@ Evidence: `repos/solo/docs/site/content/en/templates/step-by-step-guide.template
 
 ## CI/CD Suitability
 
+Both Solo and Local Node work well in CI/CD pipelines. Solo is more widely utilized in production CI environments due to its closer alignment with mainnet behavior.
+
 ### GitHub Actions / CI Pipeline
 
 **Local Node:**
@@ -233,14 +275,16 @@ jobs:
         with:
           node-version: '22'
       - uses: helm/kind-action@v1
-      - run: npm install -g @hashgraph/solo
+      - run: |
+          brew tap hiero-ledger/tools
+          brew install solo
       - run: solo one-shot single deploy
       - run: sleep 300  # Wait for startup
       - run: npm test
       - run: solo one-shot single destroy
 ```
 
-**Recommendation:** Local Node for most CI pipelines due to simpler setup and faster startup.
+**Note:** Solo is the more widely utilized option in production CI pipelines due to its production-like environment and multi-node testing capabilities.
 
 ## Known Pain Points and Mitigations
 
@@ -289,17 +333,14 @@ jobs:
 ```
 Need a local Hedera network?
 │
-├── Just need to test smart contracts?
-│   └── Use LOCAL NODE (faster, simpler)
+├── Just need quick EVM contract testing?
+│   └── Either works - choose based on your environment
 │
 ├── Need multi-node consensus testing?
 │   └── Use SOLO
 │
 ├── Running in CI/CD?
-│   ├── Simple pipeline (GitHub Actions, etc.)
-│   │   └── Use LOCAL NODE
-│   └── Kubernetes-native CI (Tekton, ArgoCD)
-│       └── Use SOLO
+│   └── Use SOLO (more widely utilized in production CI)
 │
 ├── Testing production-like behavior?
 │   └── Use SOLO
@@ -307,22 +348,25 @@ Need a local Hedera network?
 ├── Limited resources (<12GB RAM)?
 │   └── Use LOCAL NODE
 │
-└── Default choice for development
-    └── Use LOCAL NODE
+└── EVM smart contract development
+    └── Either works - both have full EVM support
 ```
 
 ## Recommendations Summary
 
-1. **Start with Local Node** for most development work
-2. **Graduate to Solo** when you need:
+1. **Both options support full EVM smart contract execution** - choose based on your workflow
+2. **Solo is recommended for:**
+   - CI/CD pipelines (more widely utilized)
+   - Production-like testing
    - Multi-node consensus testing
-   - Production-like environment
    - Kubernetes-native deployments
-   - Advanced debugging (pod-level access)
 
-3. **Use both** in a mature project:
-   - Local Node for rapid development and CI
-   - Solo for integration/staging tests
+3. **Local Node is recommended for:**
+   - Quick development iteration
+   - Resource-constrained systems (<12GB RAM)
+   - Simple Docker-based workflows
+
+4. **EVM feature parity:** Both provide identical EVM smart contract execution capabilities
 
 ## Evidence Files Referenced
 
