@@ -1,0 +1,32 @@
+{
+  "network": "localnode",
+  "timestamp": "2026-01-28T23:00:45Z",
+  "total_duration_ms": 57697,
+  "phases": {
+    "localnode_preflight": {
+      "duration_ms": 919,
+      "start_ms": 1769641188198,
+      "end_ms": 1769641189117
+    },
+    "localnode_docker_check": {
+      "duration_ms": 755,
+      "start_ms": 1769641189216,
+      "end_ms": 1769641189971
+    },
+    "localnode_start": {
+      "duration_ms": 53474,
+      "start_ms": 1769641190009,
+      "end_ms": 1769641243483
+    },
+    "localnode_health_wait": {
+      "duration_ms": 2190,
+      "start_ms": 1769641243531,
+      "end_ms": 1769641245721
+    },
+    "localnode_total": {
+      "duration_ms": 57582,
+      "start_ms": 1769641188180,
+      "end_ms": 1769641245762
+    }
+  }
+}

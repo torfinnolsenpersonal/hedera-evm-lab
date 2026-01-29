@@ -3,6 +3,8 @@
 # Based on: repos/hiero-local-node/README.md
 # Usage: ./start-local-node.sh
 # Environment: RPC_PORT (default: 7546)
+#              TIMING_ENABLED (default: false) - enable timing instrumentation
+#              TIMING_OUTPUT_DIR - directory for timing output files
 
 set -euo pipefail
 
@@ -20,11 +22,21 @@ NC='\033[0m'
 RPC_PORT="${RPC_PORT:-7546}"
 export RPC_PORT
 
+# Timing instrumentation
+TIMING_ENABLED="${TIMING_ENABLED:-false}"
+if [ "$TIMING_ENABLED" = "true" ] && [ -f "${SCRIPT_DIR}/lib/timing.sh" ]; then
+    source "${SCRIPT_DIR}/lib/timing.sh"
+    timing_init "localnode"
+    timing_start "localnode_total"
+fi
+
 echo -e "${CYAN}=== Starting Hiero Local Node ===${NC}"
 echo "RPC_PORT=${RPC_PORT}"
 echo ""
 
 # Preflight cleanup - ensure no port conflicts
+if [ "$TIMING_ENABLED" = "true" ]; then timing_start "localnode_preflight"; fi
+
 echo "Running preflight cleanup..."
 if [ -f "${SCRIPT_DIR}/cleanup.sh" ]; then
     "${SCRIPT_DIR}/cleanup.sh" --verify-only
@@ -37,7 +49,11 @@ if [ -f "${SCRIPT_DIR}/cleanup.sh" ]; then
     fi
 fi
 
+if [ "$TIMING_ENABLED" = "true" ]; then timing_end "localnode_preflight"; fi
+
 # Check prerequisites
+if [ "$TIMING_ENABLED" = "true" ]; then timing_start "localnode_docker_check"; fi
+
 if ! command -v docker &> /dev/null; then
     echo -e "${RED}Error: Docker is not installed${NC}"
     exit 1
@@ -47,6 +63,11 @@ if ! docker info &> /dev/null; then
     echo -e "${RED}Error: Docker is not running${NC}"
     exit 1
 fi
+
+if [ "$TIMING_ENABLED" = "true" ]; then timing_end "localnode_docker_check"; fi
+
+# Start the local node
+if [ "$TIMING_ENABLED" = "true" ]; then timing_start "localnode_start"; fi
 
 # Check if hedera CLI is available
 if command -v hedera &> /dev/null; then
@@ -86,6 +107,8 @@ else
     echo -e "${GREEN}=== Local Node Started Successfully ===${NC}"
 fi
 
+if [ "$TIMING_ENABLED" = "true" ]; then timing_end "localnode_start"; fi
+
 echo ""
 echo -e "${CYAN}=== Network Configuration ===${NC}"
 echo ""
@@ -119,6 +142,8 @@ echo -e "${GREEN}READY${NC} - Network is ready for transactions"
 echo ""
 
 # Verify network is healthy
+if [ "$TIMING_ENABLED" = "true" ]; then timing_start "localnode_health_wait"; fi
+
 echo "Verifying network health..."
 MAX_ATTEMPTS=30
 ATTEMPT=0
@@ -138,5 +163,14 @@ if [ $ATTEMPT -eq $MAX_ATTEMPTS ]; then
     echo -e "${YELLOW}Warning: JSON-RPC Relay may not be fully ready yet${NC}"
 fi
 
+if [ "$TIMING_ENABLED" = "true" ]; then timing_end "localnode_health_wait"; fi
+
 echo ""
 echo -e "${GREEN}=== READY ===${NC}"
+
+# Export timing data if enabled
+if [ "$TIMING_ENABLED" = "true" ]; then
+    timing_end "localnode_total"
+    timing_summary
+    timing_export_json
+fi

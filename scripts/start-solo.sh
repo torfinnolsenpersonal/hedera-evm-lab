@@ -3,6 +3,8 @@
 # Based on: repos/solo/docs/site/content/en/templates/step-by-step-guide.template.md
 # Usage: ./start-solo.sh
 # Environment: RPC_PORT (default: 7546)
+#              TIMING_ENABLED (default: false) - enable timing instrumentation
+#              TIMING_OUTPUT_DIR - directory for timing output files
 
 set -euo pipefail
 
@@ -20,11 +22,21 @@ NC='\033[0m'
 RPC_PORT="${RPC_PORT:-7546}"
 export RPC_PORT
 
+# Timing instrumentation
+TIMING_ENABLED="${TIMING_ENABLED:-false}"
+if [ "$TIMING_ENABLED" = "true" ] && [ -f "${SCRIPT_DIR}/lib/timing.sh" ]; then
+    source "${SCRIPT_DIR}/lib/timing.sh"
+    timing_init "solo"
+    timing_start "solo_total"
+fi
+
 echo -e "${CYAN}=== Starting Solo Network ===${NC}"
 echo "RPC_PORT=${RPC_PORT}"
 echo ""
 
 # Preflight cleanup - ensure no port conflicts
+if [ "$TIMING_ENABLED" = "true" ]; then timing_start "solo_preflight"; fi
+
 echo "Running preflight cleanup..."
 if [ -f "${SCRIPT_DIR}/cleanup.sh" ]; then
     "${SCRIPT_DIR}/cleanup.sh" --verify-only
@@ -73,6 +85,8 @@ if ! command -v solo &> /dev/null; then
     exit 1
 fi
 
+if [ "$TIMING_ENABLED" = "true" ]; then timing_end "solo_preflight"; fi
+
 # Environment variables for Solo
 export SOLO_CLUSTER_NAME="${SOLO_CLUSTER_NAME:-solo}"
 export SOLO_NAMESPACE="${SOLO_NAMESPACE:-solo}"
@@ -85,7 +99,9 @@ echo "  Namespace:    ${SOLO_NAMESPACE}"
 echo "  Deployment:   ${SOLO_DEPLOYMENT}"
 echo ""
 
-# Check if cluster already exists
+# Create/check kind cluster
+if [ "$TIMING_ENABLED" = "true" ]; then timing_start "solo_kind_cluster"; fi
+
 if kind get clusters 2>/dev/null | grep -q "^${SOLO_CLUSTER_NAME}$"; then
     echo -e "${YELLOW}Kind cluster '${SOLO_CLUSTER_NAME}' already exists${NC}"
     echo "Checking if Solo network is running..."
@@ -102,14 +118,41 @@ else
     kind create cluster -n "${SOLO_CLUSTER_NAME}"
 fi
 
+if [ "$TIMING_ENABLED" = "true" ]; then timing_end "solo_kind_cluster"; fi
+
 echo ""
 echo "Deploying Solo network using one-shot command..."
 echo "This will deploy: consensus node, mirror node, explorer, and JSON-RPC relay"
 echo ""
 
+# Deploy Solo with timing
+if [ "$TIMING_ENABLED" = "true" ]; then timing_start "solo_deploy"; fi
+
 # Use the one-shot single deploy command
-# This is the simplest and recommended way to start Solo
-solo one-shot single deploy
+# Capture output for parsing component timings if timing is enabled
+if [ "$TIMING_ENABLED" = "true" ] && [ -n "${TIMING_OUTPUT_DIR:-}" ]; then
+    SOLO_OUTPUT_LOG="${TIMING_OUTPUT_DIR}/solo-output.log"
+    echo "[TIMING] Capturing Solo output to: $SOLO_OUTPUT_LOG"
+    solo one-shot single deploy 2>&1 | tee "$SOLO_OUTPUT_LOG"
+    SOLO_EXIT_CODE=${PIPESTATUS[0]}
+
+    # Parse the Solo output for component timings
+    if [ -f "${SCRIPT_DIR}/lib/parse-solo-output.sh" ] && [ -f "$SOLO_OUTPUT_LOG" ]; then
+        echo ""
+        echo "[TIMING] Parsing Solo component timings..."
+        SOLO_COMPONENTS_JSON="${TIMING_OUTPUT_DIR}/solo-components.json"
+        "${SCRIPT_DIR}/lib/parse-solo-output.sh" "$SOLO_OUTPUT_LOG" "$SOLO_COMPONENTS_JSON" || true
+    fi
+
+    if [ $SOLO_EXIT_CODE -ne 0 ]; then
+        echo -e "${RED}Solo deploy failed with exit code: $SOLO_EXIT_CODE${NC}"
+        exit $SOLO_EXIT_CODE
+    fi
+else
+    solo one-shot single deploy
+fi
+
+if [ "$TIMING_ENABLED" = "true" ]; then timing_end "solo_deploy"; fi
 
 echo ""
 echo -e "${GREEN}=== Solo Network Started Successfully ===${NC}"
@@ -137,6 +180,8 @@ echo "Create account: solo ledger account create --deployment ${SOLO_DEPLOYMENT}
 echo ""
 
 # Verify network is healthy
+if [ "$TIMING_ENABLED" = "true" ]; then timing_start "solo_health_wait"; fi
+
 echo "Verifying network health..."
 MAX_ATTEMPTS=60
 ATTEMPT=0
@@ -157,5 +202,14 @@ if [ $ATTEMPT -eq $MAX_ATTEMPTS ]; then
     echo "Check pod status with: kubectl get pods -n ${SOLO_NAMESPACE}"
 fi
 
+if [ "$TIMING_ENABLED" = "true" ]; then timing_end "solo_health_wait"; fi
+
 echo ""
 echo -e "${GREEN}=== READY ===${NC}"
+
+# Export timing data if enabled
+if [ "$TIMING_ENABLED" = "true" ]; then
+    timing_end "solo_total"
+    timing_summary
+    timing_export_json
+fi

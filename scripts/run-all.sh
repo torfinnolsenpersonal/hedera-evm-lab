@@ -6,6 +6,7 @@
 # They cannot run simultaneously. This script handles the sequencing.
 #
 # Reports are automatically generated in the reports/ directory.
+# Timing instrumentation is enabled by default.
 
 set -euo pipefail
 
@@ -22,10 +23,20 @@ NC='\033[0m'
 
 MODE="${1:-localnode}"
 
-# Create temp directory for test outputs
+# Create temp directory for test outputs and timing data
 TIMESTAMP=$(date +"%Y-%m-%d_%H-%M-%S")
 TEMP_DIR=$(mktemp -d)
 trap "rm -rf $TEMP_DIR" EXIT
+
+# Timing configuration
+export TIMING_ENABLED="true"
+export TIMING_OUTPUT_DIR="${TEMP_DIR}/timing"
+mkdir -p "$TIMING_OUTPUT_DIR"
+
+# Source timing library for first-tx and mirror-sync measurements
+if [ -f "${SCRIPT_DIR}/lib/timing.sh" ]; then
+    source "${SCRIPT_DIR}/lib/timing.sh"
+fi
 
 # Output files
 HARDHAT_LN_OUTPUT="${TEMP_DIR}/hardhat_localnode.txt"
@@ -33,23 +44,84 @@ FOUNDRY_LN_OUTPUT="${TEMP_DIR}/foundry_localnode.txt"
 HARDHAT_SOLO_OUTPUT="${TEMP_DIR}/hardhat_solo.txt"
 FOUNDRY_SOLO_OUTPUT="${TEMP_DIR}/foundry_solo.txt"
 
+# Timing JSON files
+LOCALNODE_TIMING_JSON="${TIMING_OUTPUT_DIR}/localnode-timing.json"
+SOLO_TIMING_JSON="${TIMING_OUTPUT_DIR}/solo-timing.json"
+SOLO_COMPONENTS_JSON="${TIMING_OUTPUT_DIR}/solo-components.json"
+COMBINED_TIMING_JSON="${TIMING_OUTPUT_DIR}/combined-timing.json"
+
 echo -e "${CYAN}============================================${NC}"
 echo -e "${CYAN}   Hedera EVM Lab - Full Test Suite${NC}"
 echo -e "${CYAN}============================================${NC}"
 echo ""
+echo "Timing output directory: $TIMING_OUTPUT_DIR"
+echo ""
+
+# Measure first transaction time
+# Arguments:
+#   $1 - network name (localnode, solo)
+#   $2 - RPC URL (default: http://127.0.0.1:7546)
+measure_first_transaction() {
+    local network="$1"
+    local rpc_url="${2:-http://127.0.0.1:7546}"
+
+    echo -e "${CYAN}Measuring first transaction time for ${network}...${NC}"
+
+    # Initialize timing for this measurement
+    timing_init "$network"
+
+    if timing_measure_first_tx "$rpc_url"; then
+        local duration=$(timing_get_duration_formatted "${network}_first_tx")
+        echo -e "${GREEN}First TX completed in ${duration}${NC}"
+    else
+        echo -e "${YELLOW}First TX measurement failed${NC}"
+    fi
+
+    # Append to the network's timing JSON
+    local timing_file="${TIMING_OUTPUT_DIR}/${network}-first-tx.json"
+    timing_export_json "$timing_file"
+}
+
+# Measure mirror node sync time (Solo only)
+# Arguments:
+#   $1 - mirror node REST URL
+#   $2 - max wait time in seconds
+measure_mirror_sync() {
+    local mirror_url="${1:-http://localhost:8081/api/v1}"
+    local max_wait="${2:-300}"
+
+    echo -e "${CYAN}Measuring mirror node sync time...${NC}"
+
+    timing_init "solo"
+
+    if timing_measure_mirror_sync "$mirror_url" "$max_wait"; then
+        local duration=$(timing_get_duration_formatted "solo_mirror_sync")
+        echo -e "${GREEN}Mirror sync completed in ${duration}${NC}"
+    else
+        echo -e "${YELLOW}Mirror sync timed out${NC}"
+    fi
+
+    # Export mirror sync timing
+    local timing_file="${TIMING_OUTPUT_DIR}/solo-mirror-sync.json"
+    timing_export_json "$timing_file"
+}
 
 run_tests_against_localnode() {
     echo -e "${CYAN}=== Testing with Hiero Local Node ===${NC}"
     echo ""
 
-    # Start Local Node
+    # Start Local Node (with timing enabled via environment)
     echo "Starting Local Node..."
+    export TIMING_FILE="${LOCALNODE_TIMING_JSON}"
     "$SCRIPT_DIR/start-local-node.sh"
     echo ""
 
     # Wait a bit for full initialization
     echo "Waiting for network to stabilize..."
     sleep 10
+
+    # Measure first transaction time
+    measure_first_transaction "localnode" "http://127.0.0.1:7546"
 
     # Run Hardhat tests (capture output)
     echo ""
@@ -89,14 +161,21 @@ run_tests_against_solo() {
         return 1
     fi
 
-    # Start Solo
+    # Start Solo (with timing enabled via environment)
     echo "Starting Solo..."
+    export TIMING_FILE="${SOLO_TIMING_JSON}"
     "$SCRIPT_DIR/start-solo.sh"
     echo ""
 
     # Wait for Solo to be fully ready
     echo "Waiting for Solo network to stabilize..."
     sleep 30
+
+    # Measure first transaction time
+    measure_first_transaction "solo" "http://127.0.0.1:7546"
+
+    # Measure mirror node sync time (Solo-specific)
+    measure_mirror_sync "http://localhost:8081/api/v1" 300
 
     # Run Hardhat tests (capture output)
     echo ""
@@ -118,6 +197,55 @@ run_tests_against_solo() {
 
     echo -e "${GREEN}All Solo tests passed${NC}"
     return 0
+}
+
+# Combine all timing data into a single JSON file
+combine_timing_data() {
+    echo -e "${CYAN}Combining timing data...${NC}"
+
+    local output="$COMBINED_TIMING_JSON"
+
+    {
+        echo "{"
+        echo "  \"timestamp\": \"$(date -u +%Y-%m-%dT%H:%M:%SZ)\","
+        echo "  \"report_id\": \"$TIMESTAMP\","
+        echo "  \"mode\": \"$MODE\","
+
+        # Local Node timing
+        if [ -f "$LOCALNODE_TIMING_JSON" ]; then
+            echo "  \"localnode\": $(cat "$LOCALNODE_TIMING_JSON"),"
+        fi
+
+        # Local Node first TX timing
+        if [ -f "${TIMING_OUTPUT_DIR}/localnode-first-tx.json" ]; then
+            echo "  \"localnode_first_tx\": $(cat "${TIMING_OUTPUT_DIR}/localnode-first-tx.json"),"
+        fi
+
+        # Solo timing
+        if [ -f "$SOLO_TIMING_JSON" ]; then
+            echo "  \"solo\": $(cat "$SOLO_TIMING_JSON"),"
+        fi
+
+        # Solo components timing
+        if [ -f "$SOLO_COMPONENTS_JSON" ]; then
+            echo "  \"solo_components\": $(cat "$SOLO_COMPONENTS_JSON"),"
+        fi
+
+        # Solo first TX timing
+        if [ -f "${TIMING_OUTPUT_DIR}/solo-first-tx.json" ]; then
+            echo "  \"solo_first_tx\": $(cat "${TIMING_OUTPUT_DIR}/solo-first-tx.json"),"
+        fi
+
+        # Solo mirror sync timing
+        if [ -f "${TIMING_OUTPUT_DIR}/solo-mirror-sync.json" ]; then
+            echo "  \"solo_mirror_sync\": $(cat "${TIMING_OUTPUT_DIR}/solo-mirror-sync.json"),"
+        fi
+
+        echo "  \"_end\": true"
+        echo "}"
+    } > "$output"
+
+    echo "Combined timing data saved to: $output"
 }
 
 LOCALNODE_RESULT=0
@@ -176,10 +304,16 @@ fi
 
 echo ""
 
+# Combine timing data before report generation
+combine_timing_data
+
 # Generate comprehensive report
 echo -e "${CYAN}=== Generating Test Report ===${NC}"
 REPORT_FILE="${REPORTS_DIR}/${TIMESTAMP}_${MODE}-test-report.md"
 mkdir -p "$REPORTS_DIR"
+
+# Export timing files to reports directory for debugging
+cp -r "$TIMING_OUTPUT_DIR" "${REPORTS_DIR}/${TIMESTAMP}_timing-data" 2>/dev/null || true
 
 generate_report() {
     local report_file="$1"
@@ -239,6 +373,9 @@ EOF
         [ $f_total -gt 0 ] && f_rate=$(echo "scale=1; $f_pass * 100 / $f_total" | bc)
         echo "| Foundry | Solo | ${f_pass} | ${f_fail} | ${f_total} | ${f_rate}% |" >> "$report_file"
     fi
+
+    # Add timing section
+    add_timing_section "$report_file"
 
     cat >> "$report_file" << EOF
 
@@ -324,6 +461,219 @@ EOF
     cat >> "$report_file" << EOF
 *Report generated by hedera-evm-lab test framework*
 EOF
+}
+
+# Add timing section to the report
+add_timing_section() {
+    local report_file="$1"
+
+    cat >> "$report_file" << EOF
+
+---
+
+## Startup Timing
+
+EOF
+
+    # Extract timing values from JSON files
+    local ln_total="N/A"
+    local ln_first_tx="N/A"
+    local solo_total="N/A"
+    local solo_first_tx="N/A"
+    local solo_mirror="N/A"
+
+    # Parse Local Node timing
+    if [ -f "$LOCALNODE_TIMING_JSON" ]; then
+        ln_total=$(parse_timing_json "$LOCALNODE_TIMING_JSON" "localnode_total")
+    fi
+
+    if [ -f "${TIMING_OUTPUT_DIR}/localnode-first-tx.json" ]; then
+        ln_first_tx=$(parse_timing_json "${TIMING_OUTPUT_DIR}/localnode-first-tx.json" "localnode_first_tx")
+    fi
+
+    # Parse Solo timing
+    if [ -f "$SOLO_TIMING_JSON" ]; then
+        solo_total=$(parse_timing_json "$SOLO_TIMING_JSON" "solo_total")
+    fi
+
+    if [ -f "${TIMING_OUTPUT_DIR}/solo-first-tx.json" ]; then
+        solo_first_tx=$(parse_timing_json "${TIMING_OUTPUT_DIR}/solo-first-tx.json" "solo_first_tx")
+    fi
+
+    if [ -f "${TIMING_OUTPUT_DIR}/solo-mirror-sync.json" ]; then
+        solo_mirror=$(parse_timing_json "${TIMING_OUTPUT_DIR}/solo-mirror-sync.json" "solo_mirror_sync")
+    fi
+
+    # Calculate ratio if both values are available
+    local ratio="N/A"
+    if [ "$ln_total" != "N/A" ] && [ "$solo_total" != "N/A" ]; then
+        local ln_ms=$(echo "$ln_total" | sed 's/s$//' | awk '{print $1 * 1000}')
+        local solo_ms=$(echo "$solo_total" | sed 's/s$//' | awk '{print $1 * 1000}')
+        if [ "$ln_ms" != "0" ]; then
+            ratio=$(echo "scale=1; $solo_ms / $ln_ms" | bc 2>/dev/null || echo "N/A")
+            [ "$ratio" != "N/A" ] && ratio="${ratio}x"
+        fi
+    fi
+
+    cat >> "$report_file" << EOF
+### Startup Timing Summary
+
+| Metric | Local Node | Solo | Ratio |
+|--------|------------|------|-------|
+| Total Startup | ${ln_total} | ${solo_total} | ${ratio} |
+| Time to First TX | ${ln_first_tx} | ${solo_first_tx} | - |
+| Mirror Node Sync | N/A | ${solo_mirror} | - |
+
+EOF
+
+    # Add Local Node breakdown if available
+    if [ -f "$LOCALNODE_TIMING_JSON" ]; then
+        add_localnode_breakdown "$report_file"
+    fi
+
+    # Add Solo breakdown if available
+    if [ -f "$SOLO_TIMING_JSON" ]; then
+        add_solo_breakdown "$report_file"
+    fi
+
+    # Add Solo component breakdown if available
+    if [ -f "$SOLO_COMPONENTS_JSON" ]; then
+        add_solo_components_breakdown "$report_file"
+    fi
+}
+
+# Parse a timing value from JSON (simplified parsing without jq)
+parse_timing_json() {
+    local json_file="$1"
+    local phase="$2"
+
+    if [ ! -f "$json_file" ]; then
+        echo "N/A"
+        return
+    fi
+
+    # Extract duration_ms for the given phase
+    local duration_ms=$(grep -A3 "\"$phase\":" "$json_file" 2>/dev/null | grep "duration_ms" | grep -oE '[0-9]+' | head -1)
+
+    if [ -n "$duration_ms" ]; then
+        local duration_sec=$(echo "scale=1; $duration_ms / 1000" | bc)
+        echo "${duration_sec}s"
+    else
+        echo "N/A"
+    fi
+}
+
+# Add Local Node phase breakdown
+add_localnode_breakdown() {
+    local report_file="$1"
+
+    cat >> "$report_file" << EOF
+### Local Node Breakdown
+
+| Phase | Duration | % of Total |
+|-------|----------|------------|
+EOF
+
+    local total_ms=$(grep -A3 '"localnode_total":' "$LOCALNODE_TIMING_JSON" 2>/dev/null | grep "duration_ms" | grep -oE '[0-9]+' | head -1)
+    [ -z "$total_ms" ] && total_ms=1  # Avoid division by zero
+
+    for phase in localnode_preflight localnode_docker_check localnode_start localnode_health_wait; do
+        local duration_ms=$(grep -A3 "\"$phase\":" "$LOCALNODE_TIMING_JSON" 2>/dev/null | grep "duration_ms" | grep -oE '[0-9]+' | head -1)
+        if [ -n "$duration_ms" ]; then
+            local duration_sec=$(echo "scale=1; $duration_ms / 1000" | bc)
+            local pct=$(echo "scale=1; $duration_ms * 100 / $total_ms" | bc)
+            local phase_name=$(echo "$phase" | sed 's/localnode_//' | sed 's/_/ /g')
+            local phase_cap=$(echo "$phase_name" | awk '{for(i=1;i<=NF;i++) $i=toupper(substr($i,1,1)) substr($i,2)}1')
+            echo "| ${phase_cap} | ${duration_sec}s | ${pct}% |" >> "$report_file"
+        fi
+    done
+
+    echo "" >> "$report_file"
+}
+
+# Add Solo phase breakdown
+add_solo_breakdown() {
+    local report_file="$1"
+
+    cat >> "$report_file" << EOF
+### Solo Breakdown
+
+| Phase | Duration | % of Total |
+|-------|----------|------------|
+EOF
+
+    local total_ms=$(grep -A3 '"solo_total":' "$SOLO_TIMING_JSON" 2>/dev/null | grep "duration_ms" | grep -oE '[0-9]+' | head -1)
+    [ -z "$total_ms" ] && total_ms=1  # Avoid division by zero
+
+    for phase in solo_preflight solo_kind_cluster solo_deploy solo_health_wait; do
+        local duration_ms=$(grep -A3 "\"$phase\":" "$SOLO_TIMING_JSON" 2>/dev/null | grep "duration_ms" | grep -oE '[0-9]+' | head -1)
+        if [ -n "$duration_ms" ]; then
+            local duration_sec=$(echo "scale=1; $duration_ms / 1000" | bc)
+            local pct=$(echo "scale=1; $duration_ms * 100 / $total_ms" | bc)
+            local phase_name=$(echo "$phase" | sed 's/solo_//' | sed 's/_/ /g')
+            local phase_cap=$(echo "$phase_name" | awk '{for(i=1;i<=NF;i++) $i=toupper(substr($i,1,1)) substr($i,2)}1')
+            echo "| ${phase_cap} | ${duration_sec}s | ${pct}% |" >> "$report_file"
+        fi
+    done
+
+    echo "" >> "$report_file"
+}
+
+# Add Solo component breakdown from parsed Listr2 output
+add_solo_components_breakdown() {
+    local report_file="$1"
+
+    if [ ! -f "$SOLO_COMPONENTS_JSON" ]; then
+        return
+    fi
+
+    cat >> "$report_file" << EOF
+### Solo Component Breakdown (from deploy output)
+
+| Component | Duration | % of Total |
+|-----------|----------|------------|
+EOF
+
+    # Get total from the JSON
+    local total_ms=$(grep '"total_parsed_ms":' "$SOLO_COMPONENTS_JSON" 2>/dev/null | grep -oE '[0-9]+' | head -1)
+    [ -z "$total_ms" ] && total_ms=1
+
+    # Extract each task's timing
+    # Look for lines with duration_ms in the tasks section
+    local in_tasks=false
+    local current_name=""
+
+    while IFS= read -r line; do
+        if echo "$line" | grep -q '"tasks":'; then
+            in_tasks=true
+            continue
+        fi
+
+        if [ "$in_tasks" = true ]; then
+            # Check for task name
+            if echo "$line" | grep -q '"name":'; then
+                current_name=$(echo "$line" | grep -oE '"name": "[^"]+"' | cut -d'"' -f4)
+            fi
+
+            # Check for duration_ms
+            if echo "$line" | grep -q '"duration_ms":'; then
+                local duration_ms=$(echo "$line" | grep -oE '[0-9]+')
+                if [ -n "$current_name" ] && [ -n "$duration_ms" ]; then
+                    local duration_sec=$(echo "scale=1; $duration_ms / 1000" | bc)
+                    local pct=$(echo "scale=1; $duration_ms * 100 / $total_ms" | bc)
+                    echo "| ${current_name} | ${duration_sec}s | ${pct}% |" >> "$report_file"
+                fi
+                current_name=""
+            fi
+
+            # End of tasks section
+            if echo "$line" | grep -q '^  },'; then
+                in_tasks=false
+            fi
+        fi
+    done < "$SOLO_COMPONENTS_JSON"
+
+    echo "" >> "$report_file"
 }
 
 generate_report "$REPORT_FILE"

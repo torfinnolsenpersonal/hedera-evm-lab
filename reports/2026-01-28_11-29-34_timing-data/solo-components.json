@@ -1,0 +1,422 @@
+{
+  "source": "solo-listr2-output",
+  "parsed_at": "2026-01-28T19:56:47Z",
+  "tasks": {
+    "check_dependency_helm_os_darwin_release_24_6_0_arch_arm64": {
+      "name": "Check dependency: helm [OS: darwin, Release: 24.6.0, Arch: arm64]",
+      "duration_ms": 400,
+      "duration_formatted": ".40s"
+    },
+    "check_dependency_kubectl_os_darwin_release_24_6_0_arch_arm64": {
+      "name": "Check dependency: kubectl [OS: darwin, Release: 24.6.0, Arch: arm64]",
+      "duration_ms": 900,
+      "duration_formatted": ".90s"
+    },
+    "check_dependencies": {
+      "name": "Check dependencies",
+      "duration_ms": 900,
+      "duration_formatted": ".90s"
+    },
+    "setup_chart_manager": {
+      "name": "Setup chart manager",
+      "duration_ms": 5000,
+      "duration_formatted": "5.00s"
+    },
+    "solo_deployment_cluster_attach": {
+      "name": "solo deployment cluster attach",
+      "duration_ms": 100,
+      "duration_formatted": ".10s"
+    },
+    "install_minio_operator_chart": {
+      "name": "Install MinIO Operator chart",
+      "duration_ms": 1000,
+      "duration_formatted": "1.00s"
+    },
+    "install_cluster_charts": {
+      "name": "Install cluster charts",
+      "duration_ms": 1000,
+      "duration_formatted": "1.00s"
+    },
+    "solo_cluster_ref_config_setup": {
+      "name": "solo cluster-ref config setup",
+      "duration_ms": 1000,
+      "duration_formatted": "1.00s"
+    },
+    "gossip_key_for_node_node1": {
+      "name": "Gossip key for node: node1",
+      "duration_ms": 100,
+      "duration_formatted": ".10s"
+    },
+    "generate_gossip_keys": {
+      "name": "Generate gossip keys",
+      "duration_ms": 100,
+      "duration_formatted": ".10s"
+    },
+    "tls_key_for_node_node1": {
+      "name": "TLS key for node: node1",
+      "duration_ms": 600,
+      "duration_formatted": ".60s"
+    },
+    "generate_grpc_tls_keys": {
+      "name": "Generate gRPC TLS Keys",
+      "duration_ms": 600,
+      "duration_formatted": ".60s"
+    },
+    "solo_keys_consensus_generate": {
+      "name": "solo keys consensus generate",
+      "duration_ms": 900,
+      "duration_formatted": ".90s"
+    },
+    "install_chart_solo_deployment": {
+      "name": "Install chart solo-deployment",
+      "duration_ms": 39000,
+      "duration_formatted": "39.00s"
+    },
+    "check_node_node1_cluster_solo_612c197f": {
+      "name": "Check Node: node1, Cluster: solo-612c197f",
+      "duration_ms": 46000,
+      "duration_formatted": "46.00s"
+    },
+    "check_node_pods_are_running": {
+      "name": "Check node pods are running",
+      "duration_ms": 46000,
+      "duration_formatted": "46.00s"
+    },
+    "initialize": {
+      "name": "Initialize",
+      "duration_ms": 100,
+      "duration_formatted": ".10s"
+    },
+    "update_node_node1_platformversion_v0_66_0_context_kind_solo": {
+      "name": "Update node: node1 [ platformVersion = v0.66.0, context = kind-solo ]",
+      "duration_ms": 9000,
+      "duration_formatted": "9.00s"
+    },
+    "fetch_platform_software_into_network_nodes": {
+      "name": "Fetch platform software into network nodes",
+      "duration_ms": 9000,
+      "duration_formatted": "9.00s"
+    },
+    "copy_configuration_files": {
+      "name": "Copy configuration files",
+      "duration_ms": 500,
+      "duration_formatted": ".50s"
+    },
+    "set_file_permissions": {
+      "name": "Set file permissions",
+      "duration_ms": 600,
+      "duration_formatted": ".60s"
+    },
+    "node_node1": {
+      "name": "Node: node1",
+      "duration_ms": 1000,
+      "duration_formatted": "1.00s"
+    },
+    "setup_network_nodes": {
+      "name": "Setup network nodes",
+      "duration_ms": 1000,
+      "duration_formatted": "1.00s"
+    },
+    "setup_network_node_folders": {
+      "name": "setup network node folders",
+      "duration_ms": 100,
+      "duration_formatted": ".10s"
+    },
+    "solo_consensus_node_setup": {
+      "name": "solo consensus node setup",
+      "duration_ms": 11000,
+      "duration_formatted": "11.00s"
+    },
+    "start_node_node1": {
+      "name": "Start node: node1",
+      "duration_ms": 200,
+      "duration_formatted": ".20s"
+    },
+    "starting_nodes": {
+      "name": "Starting nodes",
+      "duration_ms": 200,
+      "duration_formatted": ".20s"
+    },
+    "check_network_pod_node1_status_active_attempt_29_300": {
+      "name": "Check network pod: node1 - status ACTIVE, attempt: 29/300",
+      "duration_ms": 39000,
+      "duration_formatted": "39.00s"
+    },
+    "check_all_nodes_are_active": {
+      "name": "Check all nodes are ACTIVE",
+      "duration_ms": 39000,
+      "duration_formatted": "39.00s"
+    },
+    "check_proxy_for_node_node1": {
+      "name": "Check proxy for node: node1",
+      "duration_ms": 8000,
+      "duration_formatted": "8.00s"
+    },
+    "check_node_proxies_are_active": {
+      "name": "Check node proxies are ACTIVE",
+      "duration_ms": 8000,
+      "duration_formatted": "8.00s"
+    },
+    "set_grpc_web_endpoint": {
+      "name": "set gRPC Web endpoint",
+      "duration_ms": 3000,
+      "duration_formatted": "3.00s"
+    },
+    "adding_stake_for_node_node1": {
+      "name": "Adding stake for node: node1",
+      "duration_ms": 4000,
+      "duration_formatted": "4.00s"
+    },
+    "add_node_stakes": {
+      "name": "Add node stakes",
+      "duration_ms": 4000,
+      "duration_formatted": "4.00s"
+    },
+    "solo_consensus_node_start": {
+      "name": "solo consensus node start",
+      "duration_ms": 56000,
+      "duration_formatted": "56.00s"
+    },
+    "initialize": {
+      "name": "Initialize",
+      "duration_ms": 600,
+      "duration_formatted": ".60s"
+    },
+    "install_mirror_ingress_controller": {
+      "name": "Install mirror ingress controller",
+      "duration_ms": 600,
+      "duration_formatted": ".60s"
+    },
+    "deploy_mirror_node": {
+      "name": "Deploy mirror-node",
+      "duration_ms": 2000,
+      "duration_formatted": "2.00s"
+    },
+    "enable_mirror_node": {
+      "name": "Enable mirror-node",
+      "duration_ms": 3000,
+      "duration_formatted": "3.00s"
+    },
+    "insert_data_in_public_file_data": {
+      "name": "Insert data in public.file_data",
+      "duration_ms": 700,
+      "duration_formatted": ".70s"
+    },
+    "seed_db_data": {
+      "name": "Seed DB data",
+      "duration_ms": 700,
+      "duration_formatted": ".70s"
+    },
+    "initialize": {
+      "name": "Initialize",
+      "duration_ms": 400,
+      "duration_formatted": ".40s"
+    },
+    "load_remote_config": {
+      "name": "Load remote config",
+      "duration_ms": 100,
+      "duration_formatted": ".10s"
+    },
+    "install_explorer": {
+      "name": "Install explorer",
+      "duration_ms": 1000,
+      "duration_formatted": "1.00s"
+    },
+    "check_explorer_pod_is_ready": {
+      "name": "Check explorer pod is ready",
+      "duration_ms": 20000,
+      "duration_formatted": "20.00s"
+    },
+    "enable_port_forwarding_for_explorer": {
+      "name": "Enable port forwarding for explorer",
+      "duration_ms": 100,
+      "duration_formatted": ".10s"
+    },
+    "solo_explorer_node_add": {
+      "name": "solo explorer node add",
+      "duration_ms": 22000,
+      "duration_formatted": "22.00s"
+    },
+    "initialize": {
+      "name": "Initialize",
+      "duration_ms": 400,
+      "duration_formatted": ".40s"
+    },
+    "deploy_json_rpc_relay": {
+      "name": "Deploy JSON RPC Relay",
+      "duration_ms": 40000,
+      "duration_formatted": "40.00s"
+    },
+    "check_relay_is_ready": {
+      "name": "Check relay is ready",
+      "duration_ms": 15000,
+      "duration_formatted": "15.00s"
+    },
+    "enable_port_forwarding_for_relay_node": {
+      "name": "Enable port forwarding for relay node",
+      "duration_ms": 100,
+      "duration_formatted": ".10s"
+    },
+    "solo_relay_node_add": {
+      "name": "solo relay node add",
+      "duration_ms": 57000,
+      "duration_formatted": "57.00s"
+    },
+    "account_created_0_0_1002": {
+      "name": "Account created: 0.0.1002",
+      "duration_ms": 2000,
+      "duration_formatted": "2.00s"
+    },
+    "account_created_0_0_1003": {
+      "name": "Account created: 0.0.1003",
+      "duration_ms": 2000,
+      "duration_formatted": "2.00s"
+    },
+    "account_created_0_0_1004": {
+      "name": "Account created: 0.0.1004",
+      "duration_ms": 2000,
+      "duration_formatted": "2.00s"
+    },
+    "account_created_0_0_1005": {
+      "name": "Account created: 0.0.1005",
+      "duration_ms": 2000,
+      "duration_formatted": "2.00s"
+    },
+    "account_created_0_0_1006": {
+      "name": "Account created: 0.0.1006",
+      "duration_ms": 2000,
+      "duration_formatted": "2.00s"
+    },
+    "account_created_0_0_1007": {
+      "name": "Account created: 0.0.1007",
+      "duration_ms": 2000,
+      "duration_formatted": "2.00s"
+    },
+    "account_created_0_0_1008": {
+      "name": "Account created: 0.0.1008",
+      "duration_ms": 2000,
+      "duration_formatted": "2.00s"
+    },
+    "account_created_0_0_1009": {
+      "name": "Account created: 0.0.1009",
+      "duration_ms": 2000,
+      "duration_formatted": "2.00s"
+    },
+    "account_created_0_0_1010": {
+      "name": "Account created: 0.0.1010",
+      "duration_ms": 2000,
+      "duration_formatted": "2.00s"
+    },
+    "account_created_0_0_1011": {
+      "name": "Account created: 0.0.1011",
+      "duration_ms": 2000,
+      "duration_formatted": "2.00s"
+    },
+    "account_created_0_0_1012": {
+      "name": "Account created: 0.0.1012",
+      "duration_ms": 3000,
+      "duration_formatted": "3.00s"
+    },
+    "account_created_0_0_1013": {
+      "name": "Account created: 0.0.1013",
+      "duration_ms": 3000,
+      "duration_formatted": "3.00s"
+    },
+    "account_created_0_0_1014": {
+      "name": "Account created: 0.0.1014",
+      "duration_ms": 3000,
+      "duration_formatted": "3.00s"
+    },
+    "account_created_0_0_1015": {
+      "name": "Account created: 0.0.1015",
+      "duration_ms": 3000,
+      "duration_formatted": "3.00s"
+    },
+    "account_created_0_0_1016": {
+      "name": "Account created: 0.0.1016",
+      "duration_ms": 3000,
+      "duration_formatted": "3.00s"
+    },
+    "account_created_0_0_1017": {
+      "name": "Account created: 0.0.1017",
+      "duration_ms": 3000,
+      "duration_formatted": "3.00s"
+    },
+    "account_created_0_0_1018": {
+      "name": "Account created: 0.0.1018",
+      "duration_ms": 3000,
+      "duration_formatted": "3.00s"
+    },
+    "account_created_0_0_1019": {
+      "name": "Account created: 0.0.1019",
+      "duration_ms": 3000,
+      "duration_formatted": "3.00s"
+    },
+    "account_created_0_0_1020": {
+      "name": "Account created: 0.0.1020",
+      "duration_ms": 3000,
+      "duration_formatted": "3.00s"
+    },
+    "account_created_0_0_1021": {
+      "name": "Account created: 0.0.1021",
+      "duration_ms": 4000,
+      "duration_formatted": "4.00s"
+    },
+    "account_created_0_0_1022": {
+      "name": "Account created: 0.0.1022",
+      "duration_ms": 4000,
+      "duration_formatted": "4.00s"
+    },
+    "account_created_0_0_1023": {
+      "name": "Account created: 0.0.1023",
+      "duration_ms": 4000,
+      "duration_formatted": "4.00s"
+    },
+    "account_created_0_0_1024": {
+      "name": "Account created: 0.0.1024",
+      "duration_ms": 4000,
+      "duration_formatted": "4.00s"
+    },
+    "account_created_0_0_1025": {
+      "name": "Account created: 0.0.1025",
+      "duration_ms": 4000,
+      "duration_formatted": "4.00s"
+    },
+    "account_created_0_0_1026": {
+      "name": "Account created: 0.0.1026",
+      "duration_ms": 4000,
+      "duration_formatted": "4.00s"
+    },
+    "account_created_0_0_1027": {
+      "name": "Account created: 0.0.1027",
+      "duration_ms": 4000,
+      "duration_formatted": "4.00s"
+    },
+    "account_created_0_0_1028": {
+      "name": "Account created: 0.0.1028",
+      "duration_ms": 4000,
+      "duration_formatted": "4.00s"
+    },
+    "account_created_0_0_1029": {
+      "name": "Account created: 0.0.1029",
+      "duration_ms": 4000,
+      "duration_formatted": "4.00s"
+    },
+    "account_created_0_0_1030": {
+      "name": "Account created: 0.0.1030",
+      "duration_ms": 4000,
+      "duration_formatted": "4.00s"
+    },
+    "account_created_0_0_1031": {
+      "name": "Account created: 0.0.1031",
+      "duration_ms": 4000,
+      "duration_formatted": "4.00s"
+    },
+    "create_accounts": {
+      "name": "Create Accounts",
+      "duration_ms": 6000,
+      "duration_formatted": "6.00s"
+    }
+  },
+  "total_parsed_ms": 598000
+}

@@ -1,0 +1,12 @@
+{
+  "network": "solo",
+  "timestamp": "2026-01-28T23:29:09Z",
+  "total_duration_ms": 153,
+  "phases": {
+    "solo_mirror_sync": {
+      "duration_ms": 83,
+      "start_ms": 1769642949355,
+      "end_ms": 1769642949438
+    }
+  }
+}

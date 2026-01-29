@@ -51,3 +51,6 @@ repos/
 *.tmp
 *.temp
 .cache/
+
+# Working files
+local-node-migration-status.csv

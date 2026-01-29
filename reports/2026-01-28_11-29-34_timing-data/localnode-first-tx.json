@@ -1,0 +1,12 @@
+{
+  "network": "localnode",
+  "timestamp": "2026-01-28T19:31:17Z",
+  "total_duration_ms": 158,
+  "phases": {
+    "localnode_first_tx": {
+      "duration_ms": 72,
+      "start_ms": 1769628677656,
+      "end_ms": 1769628677728
+    }
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "network": "solo",
+  "timestamp": "2026-01-28T19:57:19Z",
+  "total_duration_ms": 304,
+  "phases": {
+    "solo_first_tx": {
+      "duration_ms": 196,
+      "start_ms": 1769630239533,
+      "end_ms": 1769630239729
+    }
+  }
+}

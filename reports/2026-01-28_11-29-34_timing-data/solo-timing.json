@@ -1,0 +1,32 @@
+{
+  "network": "solo",
+  "timestamp": "2026-01-28T19:56:49Z",
+  "total_duration_ms": 535700,
+  "phases": {
+    "solo_preflight": {
+      "duration_ms": 1500,
+      "start_ms": 1769629673794,
+      "end_ms": 1769629675294
+    },
+    "solo_kind_cluster": {
+      "duration_ms": 22614,
+      "start_ms": 1769629675333,
+      "end_ms": 1769629697947
+    },
+    "solo_deploy": {
+      "duration_ms": 511187,
+      "start_ms": 1769629697989,
+      "end_ms": 1769630209176
+    },
+    "solo_health_wait": {
+      "duration_ms": 140,
+      "start_ms": 1769630209218,
+      "end_ms": 1769630209358
+    },
+    "solo_total": {
+      "duration_ms": 535609,
+      "start_ms": 1769629673779,
+      "end_ms": 1769630209388
+    }
+  }
+}
