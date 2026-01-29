@@ -11,7 +11,7 @@ This guide assumes a fresh macOS install with Homebrew available. Everything run
 Install Solo and its dependencies via Homebrew:
 
 ```bash
-brew install hashgraph/tap/solo
+brew install solo
 ```
 
 This pulls in `kubectl`, `helm`, and `kind` automatically. You also need Docker Desktop running.
