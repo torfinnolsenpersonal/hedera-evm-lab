@@ -53,8 +53,11 @@ hedera-evm-lab/
 │   ├── stop-local-node.sh          # Stop Local Node
 │   ├── start-solo.sh               # Start Solo
 │   ├── stop-solo.sh                # Stop Solo
+│   ├── start-anvil.sh              # Start Anvil (local Ethereum)
+│   ├── stop-anvil.sh               # Stop Anvil
 │   ├── run-hardhat-smoke.sh        # Run Hardhat tests
 │   ├── run-foundry-smoke.sh        # Run Foundry tests
+│   ├── run-deploy-benchmark.sh     # Deploy benchmark orchestrator
 │   └── run-all.sh                  # Run all tests
 ├── .env.example
 └── README.md
@@ -144,14 +147,10 @@ forge script script/Deploy.s.sol:DeployCounter --rpc-url $RPC_URL --broadcast
 ### Solo Workflow
 
 ```bash
-# Prerequisites (Homebrew - recommended)
-brew tap hiero-ledger/tools
-brew install solo
+# Prerequisites (Homebrew)
+brew install hiero-ledger/tools/solo
 # Or pin a specific version:
 # brew install hiero-ledger/tools/solo@<version>
-
-# Alternative (npm - not recommended)
-# npm install -g @hashgraph/solo
 
 # Start
 ./scripts/start-solo.sh
@@ -165,6 +164,37 @@ solo ledger account create --deployment solo-deployment --hbar-amount 1000 --gen
 # Stop
 ./scripts/stop-solo.sh
 ```
+
+### Deploy Benchmark (single contract, cold start)
+
+A focused benchmark that times the full developer journey — install dependencies,
+compile, start a network, deploy a contract, write state, read state — from zero.
+
+```bash
+# Full cold start (wipes node_modules + artifacts, times everything)
+./scripts/run-deploy-benchmark.sh anvil         # Anvil (local Ethereum)
+./scripts/run-deploy-benchmark.sh localnode      # Hiero Local Node
+./scripts/run-deploy-benchmark.sh solo           # Solo
+./scripts/run-deploy-benchmark.sh all            # All networks
+
+# Warm mode (skip install/compile, just network + contract ops)
+./scripts/run-deploy-benchmark.sh --warm solo
+
+# Or run directly via Hardhat (no orchestrator, no network management)
+cd examples/hardhat/contract-smoke
+npx hardhat test test/DeployBenchmark.test.ts --network hardhat
+npx hardhat test test/DeployBenchmark.test.ts --network localnode
+npx hardhat test test/DeployBenchmark.test.ts --network solo
+```
+
+Hedera Testnet requires a funded account:
+```bash
+export HEDERA_TESTNET_PRIVATE_KEY=0x...
+./scripts/run-deploy-benchmark.sh hedera_testnet
+```
+
+Reports are saved to `reports/`. See [Benchmark Results](docs/10-benchmark-results.md)
+for measured timings across all four networks.
 
 ### Full Test Suite
 
@@ -229,6 +259,10 @@ See `docs/06-troubleshooting.md` for comprehensive troubleshooting guide.
 - [Foundry Integration](docs/04-foundry-integration.md)
 - [Sample Test Plan](docs/05-sample-test-plan.md)
 - [Troubleshooting](docs/06-troubleshooting.md)
+- [EVM Test Coverage](docs/07-evm-test-coverage.md)
+- [Notes on Test Configs](docs/08-notes-on-test-configs.md)
+- [Solo Quickstart](docs/09-solo-quickstart-deploy-and-explore.md)
+- [Benchmark Results](docs/10-benchmark-results.md)
 
 ## Assumptions
 
