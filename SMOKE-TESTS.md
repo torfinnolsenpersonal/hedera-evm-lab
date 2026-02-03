@@ -4,14 +4,18 @@ This document explains the scope, dependencies, connection details, and observab
 
 ## Target Networks and Observability
 
-| Network | Startup Script | JSON-RPC (HTTP/WS) | Mirror Node REST | Hashscan / Explorer |
-|---------|----------------|--------------------|------------------|---------------------|
-| Hiero Local Node | `./scripts/start-local-node.sh` | `http://127.0.0.1:7546` / `ws://127.0.0.1:8546` | `http://127.0.0.1:5551` | `http://127.0.0.1:8090` (Local Hashscan) |
-| Solo | `./scripts/start-solo.sh` | `http://127.0.0.1:7546` | `http://localhost:8081/api/v1` (default) | `http://localhost:8080` (Explorer UI) |
+| Network | Startup Script | JSON-RPC (HTTP/WS) | Chain ID | Mirror Node REST | Hashscan / Explorer |
+|---------|----------------|---------------------|----------|------------------|---------------------|
+| Anvil (Ethereum) | `./scripts/start-anvil.sh` | `http://127.0.0.1:8545` | 31337 (0x7a69) | N/A | N/A |
+| Hiero Local Node | `./scripts/start-local-node.sh` | `http://127.0.0.1:7546` / `ws://127.0.0.1:8546` | 298 (0x12a) | `http://127.0.0.1:5551` | `http://127.0.0.1:8090` (Local Hashscan) |
+| Solo | `./scripts/start-solo.sh` | `http://127.0.0.1:7546` | 298 (0x12a) | `http://localhost:8081/api/v1` (default) | `http://localhost:8080` (Explorer UI) |
+| Hedera Testnet | N/A (remote) | `https://testnet.hashio.io/api` | 296 (0x128) | `https://testnet.mirrornode.hedera.com/api/v1` | `https://hashscan.io/testnet` |
 
-- Both environments expose Chain ID `298 (0x12a)` and may not run simultaneously because they default to the same RPC port (see `docs/05-sample-test-plan.md`).
+- Local Node and Solo expose Chain ID `298 (0x12a)` and may not run simultaneously because they default to the same RPC port (see `docs/05-sample-test-plan.md`).
+- Anvil runs on port 8545 (no conflict with Hedera networks on 7546).
+- Hedera Testnet requires `HEDERA_TESTNET_PRIVATE_KEY` environment variable with a funded testnet account.
 - Hashscan / Explorer can be pointed at `LOCALNET` (for Local Node) or at the Solo deployment by visiting the URLs printed by the startup scripts.
-- Mirror Node verification relies on the REST API’s transaction and contract-result endpoints. Examples later in this file show how to query them.
+- Mirror Node verification relies on the REST API's transaction and contract-result endpoints. Examples later in this file show how to query them.
 
 ## Hardhat Contract Smoke Suite (`examples/hardhat/contract-smoke`)
 
@@ -148,6 +152,61 @@ Deployment and manual verification rely on `script/Deploy.s.sol` within the Foun
      Check the `result` (should be `SUCCESS` for state-changing tests) and confirm emitted logs align with event expectations.
 4. **Cross-checking counts**
    - After Foundry smoke tests run, use `cast call $CONTRACT "count()(uint256)" --rpc-url $RPC_URL` and compare with the `state_changes` field returned by the Mirror Node transaction record to verify on-chain state matches the local read.
+
+## Deploy Benchmark (`test/DeployBenchmark.test.ts`)
+
+The deploy benchmark is a focused timing test that measures the core developer workflow -- deploy a contract, call a write function, read state, verify an event -- across all five networks. It uses only the Counter contract and produces a per-step timing table.
+
+### Steps Measured
+
+| Step | Operation | What It Measures |
+|------|-----------|------------------|
+| 1 | Deploy Counter | Contract deployment and confirmation |
+| 2 | `increment()` | Write transaction confirmation time |
+| 3 | `count()` | Read (view call) latency |
+| 4 | Event query | `CountChanged` event retrieval |
+| 5 | `setCount(42)` | Second write transaction |
+| 6 | `count()` == 42 | Final state verification |
+
+### Running the Benchmark
+
+```bash
+# Individual networks
+cd examples/hardhat/contract-smoke
+npm run benchmark              # Hardhat (in-memory)
+npm run benchmark:anvil        # Anvil (local Ethereum)
+npm run benchmark:localnode    # Hiero Local Node
+npm run benchmark:solo         # Solo
+npm run benchmark:hedera_testnet  # Hedera Testnet
+
+# Orchestrated multi-network run with report generation
+./scripts/run-deploy-benchmark.sh anvil           # Single network
+./scripts/run-deploy-benchmark.sh local           # anvil + localnode + solo
+./scripts/run-deploy-benchmark.sh all             # All networks
+```
+
+The orchestrator script starts and stops local networks automatically, captures output, and generates a comparison report in `reports/`.
+
+### Output
+
+Each run prints a timing table:
+
+```
+╔══════════════════════════════════════════════════════════╗
+║         DEPLOY BENCHMARK - anvil                        ║
+╠══════════════════════════════════════════════════════════╣
+║  Deploy contract                            1234ms      ║
+║  Write (increment)                           567ms      ║
+║  Read (count)                                 12ms      ║
+║  Event verification                           45ms      ║
+║  Write (setCount)                            580ms      ║
+║  Final read                                    8ms      ║
+╠══════════════════════════════════════════════════════════╣
+║  TOTAL                                      2446ms      ║
+╚══════════════════════════════════════════════════════════╝
+```
+
+---
 
 ## Verification Checklist After Any Smoke Run
 

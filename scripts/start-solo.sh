@@ -60,28 +60,25 @@ if ! docker info &> /dev/null; then
     exit 1
 fi
 
+if ! command -v solo &> /dev/null; then
+    echo -e "${RED}Error: solo is not installed${NC}"
+    echo "Install with Homebrew:"
+    echo "  brew install hiero-ledger/tools/solo"
+    echo ""
+    echo "Or pin a specific version:"
+    echo "  brew install hiero-ledger/tools/solo@<version>"
+    exit 1
+fi
+
 if ! command -v kind &> /dev/null; then
     echo -e "${RED}Error: kind is not installed${NC}"
-    echo "Install with: brew install kind (macOS) or see https://kind.sigs.k8s.io/"
+    echo "Install with: brew install kind"
     exit 1
 fi
 
 if ! command -v kubectl &> /dev/null; then
     echo -e "${RED}Error: kubectl is not installed${NC}"
-    echo "Install with: brew install kubernetes-cli (macOS)"
-    exit 1
-fi
-
-if ! command -v solo &> /dev/null; then
-    echo -e "${RED}Error: solo is not installed${NC}"
-    echo "Install with Homebrew (recommended):"
-    echo "  brew tap hiero-ledger/tools"
-    echo "  brew install solo"
-    echo ""
-    echo "Or pin a specific version:"
-    echo "  brew install hiero-ledger/tools/solo@<version>"
-    echo ""
-    echo "Alternative (npm): npm install -g @hashgraph/solo"
+    echo "Install with: brew install kubernetes-cli"
     exit 1
 fi
 

@@ -6,13 +6,13 @@ This document explains the timing configurations used in tests to accommodate di
 
 **TL;DR: Solo needs ~5x longer wait times than Local Node due to Mirror Node sync latency.**
 
-| Parameter | Local Node | Solo | Hardhat | Notes |
-|-----------|------------|------|---------|-------|
-| Post-TX Wait | 500ms | 2500ms | 0ms | Wait after state-changing transaction |
-| Intermediate Wait | 300ms | 1500ms | 0ms | Wait between sequential transactions |
-| Test Timeout | 40-60s | 90-120s | 10-20s | Mocha test timeout |
-| Network Timeout | 60s | 120s | N/A | Hardhat network config |
-| Startup Stabilization | 10s | 30s | N/A | Wait after network ready |
+| Parameter | Hardhat | Anvil | Local Node | Solo | Hedera Testnet | Notes |
+|-----------|---------|-------|------------|------|----------------|-------|
+| Post-TX Wait | 0ms | 0ms | 500ms | 2500ms | 5000ms | Wait after state-changing transaction |
+| Intermediate Wait | 0ms | 0ms | 300ms | 1500ms | 3000ms | Wait between sequential transactions |
+| Test Timeout | 10-20s | 30s | 40-60s | 90-120s | 120s | Mocha test timeout |
+| Network Timeout | N/A | 30s | 60s | 120s | 180s | Hardhat network config |
+| Startup Stabilization | N/A | N/A | 10s | 30s | N/A (remote) | Wait after network ready |
 
 ---
 
@@ -32,10 +32,22 @@ networks: {
     chainId: 298,
     timeout: 120000,   // 120 seconds (2x Local Node)
   },
+  anvil: {
+    url: "http://127.0.0.1:8545",
+    chainId: 31337,
+    timeout: 30000,    // 30 seconds
+  },
+  hedera_testnet: {
+    url: "https://testnet.hashio.io/api",
+    chainId: 296,
+    timeout: 180000,   // 180 seconds (remote network)
+  },
 }
 ```
 
 **Why 2x timeout for Solo?** Solo's Kubernetes-based architecture adds network overhead for RPC calls. The longer timeout prevents false failures from network latency.
+
+**Why 180s for Hedera Testnet?** The public testnet has variable load and geographically distributed consensus nodes. Generous timeouts prevent spurious failures from network variability.
 
 ---
 
@@ -47,6 +59,16 @@ Each test file contains a timing configuration block. Here's the canonical patte
 
 ```typescript
 const NETWORK_TIMINGS: Record<string, NetworkTiming> = {
+  hardhat: {
+    defaultWaitMs: 0,         // Instant (in-memory)
+    intermediateWaitMs: 0,
+    timeout: 10000,
+  },
+  anvil: {
+    defaultWaitMs: 0,         // Instant (local Ethereum)
+    intermediateWaitMs: 0,
+    timeout: 30000,
+  },
   localnode: {
     defaultWaitMs: 500,       // Wait after state-changing tx
     intermediateWaitMs: 300,  // Wait between sequential txs
@@ -57,10 +79,10 @@ const NETWORK_TIMINGS: Record<string, NetworkTiming> = {
     intermediateWaitMs: 1500, // 5x longer
     timeout: 90000,           // 2.25x longer
   },
-  hardhat: {
-    defaultWaitMs: 0,         // Instant (in-memory)
-    intermediateWaitMs: 0,
-    timeout: 10000,
+  hedera_testnet: {
+    defaultWaitMs: 5000,      // Remote network, variable latency
+    intermediateWaitMs: 3000,
+    timeout: 120000,
   },
 };
 ```
@@ -284,17 +306,112 @@ If tests fail intermittently on Solo:
 
 ---
 
-## 8. Summary Table
+## 8. Deploy Benchmark
 
-| Configuration Point | Local Node Value | Solo Value | Multiplier |
-|---------------------|------------------|------------|------------|
-| `hardhat.config.ts` network timeout | 60000ms | 120000ms | 2x |
-| `defaultWaitMs` (post-TX delay) | 500ms | 2500ms | 5x |
-| `intermediateWaitMs` (between TXs) | 300ms | 1500ms | 5x |
-| Mocha test timeout | 40000ms | 90000ms | 2.25x |
-| Startup stabilization delay | 10s | 30s | 3x |
-| Health check poll interval | 2s | 5s | 2.5x |
+The deploy benchmark (`test/DeployBenchmark.test.ts`) is a focused timing test that measures the core developer workflow across all five networks. It runs six timed steps:
+
+1. **Deploy** the Counter contract
+2. **Write** call `increment()`
+3. **Read** call `count()`
+4. **Event check** verify `CountChanged` event emitted
+5. **Second write** call `setCount(42)`
+6. **Final read** verify `count() == 42`
+
+### Running the Deploy Benchmark
+
+```bash
+cd examples/hardhat/contract-smoke
+
+# Against Hardhat (in-memory)
+npm run benchmark
+
+# Against Anvil (local Ethereum)
+npm run benchmark:anvil
+
+# Against Local Node
+npm run benchmark:localnode
+
+# Against Solo
+npm run benchmark:solo
+
+# Against Hedera Testnet (requires HEDERA_TESTNET_PRIVATE_KEY)
+HEDERA_TESTNET_PRIVATE_KEY=0x... npm run benchmark:hedera_testnet
+```
+
+Or use the orchestrator script to run across multiple networks and generate a report:
+
+```bash
+./scripts/run-deploy-benchmark.sh anvil          # Single network
+./scripts/run-deploy-benchmark.sh local          # anvil + localnode + solo
+./scripts/run-deploy-benchmark.sh all            # All four networks
+```
+
+Reports are saved to `reports/YYYY-MM-DD_HH-MM-SS_deploy-benchmark.md`.
 
 ---
 
-*Last updated: 2026-01-28 based on test run data*
+## 9. Anvil (Ethereum Baseline)
+
+Anvil is Foundry's local Ethereum node, used here as a pure-EVM baseline for benchmarking. Since Anvil processes transactions instantly (no consensus delay, no mirror node), it represents the theoretical best-case performance for EVM operations.
+
+| Parameter | Value | Notes |
+|-----------|-------|-------|
+| RPC URL | `http://127.0.0.1:8545` | Default Anvil port |
+| Chain ID | 31337 (0x7a69) | Same as Hardhat Network |
+| Post-TX Wait | 0ms | Instant block mining |
+| Intermediate Wait | 0ms | No sync delay |
+| Test Timeout | 30s | Generous for a local node |
+| Network Timeout | 30s | Hardhat config |
+
+### Startup
+
+```bash
+./scripts/start-anvil.sh    # Start on port 8545
+./scripts/stop-anvil.sh     # Stop and free port
+```
+
+Anvil ships with 10 deterministic accounts, each funded with 10,000 ETH. Account #0 private key: `0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80`.
+
+---
+
+## 10. Hedera Testnet
+
+Hedera Testnet is the public test network, used to benchmark against real Hedera infrastructure with geographically distributed consensus nodes.
+
+| Parameter | Value | Notes |
+|-----------|-------|-------|
+| RPC URL | `https://testnet.hashio.io/api` | Default; override with `HEDERA_TESTNET_RPC_URL` |
+| Chain ID | 296 (0x128) | Hedera Testnet |
+| Post-TX Wait | 5000ms | Remote network + mirror node sync |
+| Intermediate Wait | 3000ms | Variable network latency |
+| Test Timeout | 120s | Generous for remote calls |
+| Network Timeout | 180s | Hardhat config |
+
+### Environment Setup
+
+```bash
+# Required
+export HEDERA_TESTNET_PRIVATE_KEY=0x...
+
+# Optional (defaults to https://testnet.hashio.io/api)
+export HEDERA_TESTNET_RPC_URL=https://testnet.hashio.io/api
+```
+
+The account must be funded with HBAR on testnet. Create one at [portal.hedera.com](https://portal.hedera.com).
+
+---
+
+## 11. Summary Table
+
+| Configuration Point | Hardhat | Anvil | Local Node | Solo | Hedera Testnet |
+|---------------------|---------|-------|------------|------|----------------|
+| `hardhat.config.ts` network timeout | N/A | 30000ms | 60000ms | 120000ms | 180000ms |
+| `defaultWaitMs` (post-TX delay) | 0ms | 0ms | 500ms | 2500ms | 5000ms |
+| `intermediateWaitMs` (between TXs) | 0ms | 0ms | 300ms | 1500ms | 3000ms |
+| Mocha test timeout | 10000ms | 30000ms | 40000ms | 90000ms | 120000ms |
+| Startup stabilization delay | N/A | N/A | 10s | 30s | N/A |
+| Health check poll interval | N/A | N/A | 2s | 5s | N/A |
+
+---
+
+*Last updated: 2026-02-03 based on test run data*

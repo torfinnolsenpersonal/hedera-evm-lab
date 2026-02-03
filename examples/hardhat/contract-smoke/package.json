@@ -10,7 +10,12 @@
     "deploy": "hardhat run scripts/deploy.ts --network localnode",
     "deploy:solo": "hardhat run scripts/deploy.ts --network solo",
     "interact": "hardhat run scripts/interact.ts --network localnode",
-    "clean": "hardhat clean"
+    "clean": "hardhat clean",
+    "benchmark": "hardhat test test/DeployBenchmark.test.ts",
+    "benchmark:anvil": "hardhat test test/DeployBenchmark.test.ts --network anvil",
+    "benchmark:localnode": "hardhat test test/DeployBenchmark.test.ts --network localnode",
+    "benchmark:solo": "hardhat test test/DeployBenchmark.test.ts --network solo",
+    "benchmark:hedera_testnet": "hardhat test test/DeployBenchmark.test.ts --network hedera_testnet"
   },
   "devDependencies": {
     "@nomicfoundation/hardhat-toolbox": "^4.0.0",
