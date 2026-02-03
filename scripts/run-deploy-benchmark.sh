@@ -63,6 +63,16 @@ trap "rm -rf $TEMP_DIR" EXIT
 
 mkdir -p "$REPORTS_DIR"
 
+# Timing data directory (persisted alongside the report)
+TIMING_DATA_DIR="${REPORTS_DIR}/${TIMESTAMP}_timing-data"
+mkdir -p "$TIMING_DATA_DIR"
+
+# Track per-network results: pass/fail/skip
+declare -A NET_PASSED
+declare -A NET_FAILED
+declare -A NET_TOTAL
+declare -A NET_STATUS
+
 echo -e "${CYAN}============================================${NC}"
 echo -e "${CYAN}   Deploy Benchmark — Developer Journey${NC}"
 echo -e "${CYAN}============================================${NC}"
@@ -244,6 +254,22 @@ run_benchmark() {
     fi
     timing_end "${net}_benchmark"
 
+    # Parse pass/fail from test output
+    local passing failing total
+    passing=$(grep -oE '[0-9]+ passing' "$output_file" 2>/dev/null | head -1 | grep -oE '[0-9]+' || echo "0")
+    failing=$(grep -oE '[0-9]+ failing' "$output_file" 2>/dev/null | head -1 | grep -oE '[0-9]+' || echo "0")
+    total=$((passing + failing))
+    NET_PASSED[$net]="$passing"
+    NET_FAILED[$net]="$failing"
+    NET_TOTAL[$net]="$total"
+    if [ "$failing" -eq 0 ] && [ "$passing" -gt 0 ]; then
+        NET_STATUS[$net]="PASS"
+    elif [ "$passing" -gt 0 ]; then
+        NET_STATUS[$net]="PARTIAL"
+    else
+        NET_STATUS[$net]="FAIL"
+    fi
+
     # Stage 6: Network shutdown
     if [ "$net" != "hedera_testnet" ]; then
         echo -e "${YELLOW}Stage 6: Network shutdown${NC}"
@@ -254,6 +280,19 @@ run_benchmark() {
 
     echo ""
     timing_summary
+
+    # Export timing JSON for this network
+    timing_export_json "${TIMING_DATA_DIR}/${net}-timing.json"
+
+    # Copy raw timing data
+    if [ -f "$TIMING_DATA_FILE" ]; then
+        cp "$TIMING_DATA_FILE" "${TIMING_DATA_DIR}/${net}-timing-data.txt"
+    fi
+
+    # Copy benchmark output
+    if [ -f "$output_file" ]; then
+        cp "$output_file" "${TIMING_DATA_DIR}/${net}-benchmark-output.txt"
+    fi
 }
 
 # ============================================================================
@@ -282,19 +321,44 @@ generate_report() {
     echo -e "${CYAN}Generating benchmark report...${NC}"
 
     {
-        echo "# Deploy Benchmark Report — Developer Journey"
+        # ── Header (matches existing report format) ──
+        echo "# Hedera EVM Lab - Deploy Benchmark Report"
         echo ""
-        echo "**Date:** ${TIMESTAMP}"
-        echo ""
-        echo "**Networks tested:** ${NETWORKS[*]}"
-        echo ""
+        echo "**Generated**: $(date '+%Y-%m-%d %H:%M:%S %Z')"
+        echo "**Report ID**: ${TIMESTAMP}"
+        echo "**Test Mode**: deploy-benchmark"
+        echo "**Networks**: ${NETWORKS[*]}"
         if $CLEAN_MODE; then
-            echo "**Run type:** Clean (full developer journey — npm install, compile, startup, benchmark)"
+            echo "**Run Type**: Clean (full developer journey — npm install, compile, startup, benchmark)"
         else
-            echo "**Run type:** Warm (network startup + benchmark only)"
+            echo "**Run Type**: Warm (network startup + benchmark only)"
         fi
         echo ""
-        echo "## Results"
+        echo "---"
+        echo ""
+
+        # ── Executive Summary ──
+        echo "## Executive Summary"
+        echo ""
+        echo "| Network | Passed | Failed | Total | Pass Rate | Status |"
+        echo "|---------|--------|--------|-------|-----------|--------|"
+        for net in "${NETWORKS[@]}"; do
+            local passed="${NET_PASSED[$net]:-0}"
+            local failed="${NET_FAILED[$net]:-0}"
+            local total="${NET_TOTAL[$net]:-0}"
+            local status="${NET_STATUS[$net]:-SKIP}"
+            local rate="N/A"
+            if [ "$total" -gt 0 ]; then
+                rate="$(echo "scale=1; $passed * 100 / $total" | bc)%"
+            fi
+            echo "| ${net} | ${passed} | ${failed} | ${total} | ${rate} | ${status} |"
+        done
+        echo ""
+        echo "---"
+        echo ""
+
+        # ── Timing Results Table ──
+        echo "## Timing Results"
         echo ""
 
         # Build header
@@ -318,13 +382,10 @@ generate_report() {
             done
             echo "$row"
 
-            # Tooling check row (only shows for anvil)
+            # Tooling check row (only if anvil is in the network list)
             local has_tooling=false
             for net in "${NETWORKS[@]}"; do
-                if [ "$net" = "anvil" ]; then
-                    has_tooling=true
-                    break
-                fi
+                if [ "$net" = "anvil" ]; then has_tooling=true; break; fi
             done
             if $has_tooling; then
                 row="| Tooling check |"
@@ -376,7 +437,7 @@ generate_report() {
             echo "$row"
         done
 
-        # TOTAL row from benchmark output
+        # Contract ops total row
         row="| **Contract ops total** |"
         for net in "${NETWORKS[@]}"; do
             local output_file="${TEMP_DIR}/benchmark_${net}.txt"
@@ -401,10 +462,103 @@ generate_report() {
 
         echo ""
         echo "---"
-        echo "*Generated by run-deploy-benchmark.sh*"
+        echo ""
+
+        # ── Per-Network Details ──
+        for net in "${NETWORKS[@]}"; do
+            echo "## ${net}"
+            echo ""
+            local output_file="${TIMING_DATA_DIR}/${net}-benchmark-output.txt"
+            local passed="${NET_PASSED[$net]:-0}"
+            local failed="${NET_FAILED[$net]:-0}"
+            local status="${NET_STATUS[$net]:-SKIP}"
+            echo "**Status**: ${status} (${passed} passed, ${failed} failed)"
+            echo ""
+
+            # Show per-step timings from this network
+            echo "### Contract Operations"
+            echo ""
+            echo "| Step | Duration |"
+            echo "|------|----------|"
+            for step in "${steps[@]}"; do
+                local value
+                value=$(parse_benchmark_output "$output_file" "$step")
+                echo "| ${step} | ${value} |"
+            done
+            local total_val
+            total_val=$(parse_benchmark_output "$output_file" "TOTAL")
+            echo "| **TOTAL** | **${total_val}** |"
+            echo ""
+
+            # Show orchestrator timing phases
+            echo "### Orchestrator Timing"
+            echo ""
+            echo "| Phase | Duration |"
+            echo "|-------|----------|"
+            if $CLEAN_MODE; then
+                local npm_val compile_val
+                npm_val=$(timing_get_duration_formatted "${net}_npm_install" 2>/dev/null || echo "N/A")
+                compile_val=$(timing_get_duration_formatted "${net}_compile" 2>/dev/null || echo "N/A")
+                echo "| npm install | ${npm_val} |"
+                if [ "$net" = "anvil" ]; then
+                    local tool_val
+                    tool_val=$(timing_get_duration_formatted "${net}_tooling_check" 2>/dev/null || echo "N/A")
+                    echo "| Tooling check | ${tool_val} |"
+                fi
+                echo "| Compile | ${compile_val} |"
+            fi
+            local startup_val benchmark_val shutdown_val
+            if [ "$net" = "hedera_testnet" ]; then
+                startup_val="N/A (remote)"
+            else
+                startup_val=$(timing_get_duration_formatted "${net}_startup" 2>/dev/null || echo "N/A")
+            fi
+            benchmark_val=$(timing_get_duration_formatted "${net}_benchmark" 2>/dev/null || echo "N/A")
+            echo "| Network startup | ${startup_val} |"
+            echo "| Benchmark run | ${benchmark_val} |"
+            if [ "$net" != "hedera_testnet" ]; then
+                shutdown_val=$(timing_get_duration_formatted "${net}_shutdown" 2>/dev/null || echo "N/A")
+                echo "| Shutdown | ${shutdown_val} |"
+            fi
+            echo ""
+
+            # Show failed tests if any
+            if [ "$failed" -gt 0 ] && [ -f "$output_file" ]; then
+                echo "### Failed Tests"
+                echo ""
+                echo '```'
+                grep -E "^\s+[0-9]+\)" "$output_file" 2>/dev/null || true
+                echo '```'
+                echo ""
+            fi
+
+            echo "---"
+            echo ""
+        done
+
+        # ── Environment ──
+        echo "## Environment"
+        echo ""
+        echo "- **OS**: $(uname -s) $(uname -r)"
+        echo "- **Architecture**: $(uname -m)"
+        echo "- **Node.js**: $(node --version 2>/dev/null || echo 'N/A')"
+        echo "- **Docker**: $(docker --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || echo 'N/A')"
+        if command -v solo &>/dev/null; then
+            echo "- **Solo**: $(solo --version 2>/dev/null | grep -oE 'Version[[:space:]]*:[[:space:]]*[0-9.]+' | head -1 || echo 'installed')"
+        fi
+        if command -v anvil &>/dev/null; then
+            echo "- **Anvil**: $(anvil --version 2>/dev/null | head -1 || echo 'installed')"
+        fi
+        echo ""
+        echo "---"
+        echo ""
+        echo "*Report generated by run-deploy-benchmark.sh*"
+        echo ""
+        echo "Timing data: \`${TIMESTAMP}_timing-data/\`"
     } > "$report_file"
 
     echo -e "${GREEN}Report saved to: ${report_file}${NC}"
+    echo -e "${GREEN}Timing data saved to: ${TIMING_DATA_DIR}/${NC}"
 }
 
 # ============================================================================
