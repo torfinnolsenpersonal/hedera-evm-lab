@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 # Run the Deploy Benchmark across one or more networks
-# Usage: ./scripts/run-deploy-benchmark.sh [--clean|--warm] [anvil|localnode|solo|hedera_testnet|local|all]
+# Usage: ./scripts/run-deploy-benchmark.sh [--clean|--warm|--warm-cluster] [anvil|localnode|solo|hedera_testnet|local|all]
 #
 # Flags:
-#   --clean  (default) Full developer journey: clean node_modules/artifacts, npm install, compile, then benchmark
-#   --warm   Skip install/compile steps; only run network startup + contract benchmark
+#   --clean         (default) Full developer journey: clean node_modules/artifacts, npm install, compile, then benchmark
+#   --warm          Skip install/compile steps; only run network startup + contract benchmark
+#   --warm-cluster  Like --warm, but also preserves the kind cluster between runs (Solo only)
 #
 # Modes:
 #   anvil          - Benchmark against Anvil (local Ethereum)
@@ -35,16 +36,24 @@ NC='\033[0m'
 
 # Parse flags
 CLEAN_MODE=true
+WARM_CLUSTER=false
 MODE=""
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --clean)
             CLEAN_MODE=true
+            WARM_CLUSTER=false
             shift
             ;;
         --warm)
             CLEAN_MODE=false
+            WARM_CLUSTER=false
+            shift
+            ;;
+        --warm-cluster)
+            CLEAN_MODE=false
+            WARM_CLUSTER=true
             shift
             ;;
         *)
@@ -67,17 +76,18 @@ mkdir -p "$REPORTS_DIR"
 TIMING_DATA_DIR="${REPORTS_DIR}/${TIMESTAMP}_timing-data"
 mkdir -p "$TIMING_DATA_DIR"
 
-# Track per-network results: pass/fail/skip
-declare -A NET_PASSED
-declare -A NET_FAILED
-declare -A NET_TOTAL
-declare -A NET_STATUS
+# Track per-network results: pass/fail/skip (bash 3.x compatible key-value store)
+# Keys are sanitized labels: solo_1st, anvil, hedera_testnet_2nd, etc.
+kv_set() { eval "${1}_${2}=\${3}"; }
+kv_get() { eval "echo \"\${${1}_${2}:-${3:-}}\""; }
 
 echo -e "${CYAN}============================================${NC}"
 echo -e "${CYAN}   Deploy Benchmark — Developer Journey${NC}"
 echo -e "${CYAN}============================================${NC}"
 echo "Mode: ${MODE}"
-if $CLEAN_MODE; then
+if $WARM_CLUSTER; then
+    echo "Run type: WARM CLUSTER (cluster persists, deploy + contract ops only)"
+elif $CLEAN_MODE; then
     echo "Run type: CLEAN (full developer journey)"
 else
     echo "Run type: WARM (skip install/compile)"
@@ -98,13 +108,43 @@ case "$MODE" in
         ;;
     *)
         echo -e "${RED}Unknown mode: ${MODE}${NC}"
-        echo "Usage: $0 [--clean|--warm] [anvil|localnode|solo|hedera_testnet|local|all]"
+        echo "Usage: $0 [--clean|--warm|--warm-cluster] [anvil|localnode|solo|hedera_testnet|local|all]"
         exit 1
         ;;
 esac
 
 echo "Networks: ${NETWORKS[*]}"
 echo ""
+
+# Resolve actual network name from a run label
+# e.g., "solo_1st" → "solo", "anvil_1st" → "anvil", "anvil" → "anvil"
+net_name() {
+    case "$1" in
+        *_1st) echo "${1%_1st}" ;;
+        *_2nd) echo "${1%_2nd}" ;;
+        *) echo "$1" ;;
+    esac
+}
+
+# Display-friendly label for reports
+# e.g., "solo_1st" → "solo (1st start)", "anvil" → "anvil"
+display_name() {
+    case "$1" in
+        *_1st) echo "${1%_1st} (1st start)" ;;
+        *_2nd) echo "${1%_2nd} (2nd start)" ;;
+        *) echo "$1" ;;
+    esac
+}
+
+# Build run list — expand each network into two runs for --warm-cluster
+RUN_LIST=()
+for net in "${NETWORKS[@]}"; do
+    if $WARM_CLUSTER; then
+        RUN_LIST+=("${net}_1st" "${net}_2nd")
+    else
+        RUN_LIST+=("$net")
+    fi
+done
 
 # In warm mode, ensure hardhat project is ready once up front
 if ! $CLEAN_MODE; then
@@ -171,7 +211,11 @@ stop_network() {
             "${SCRIPT_DIR}/stop-local-node.sh" || true
             ;;
         solo)
-            "${SCRIPT_DIR}/stop-solo.sh" || true
+            if $WARM_CLUSTER; then
+                "${SCRIPT_DIR}/stop-solo.sh" --keep-cluster || true
+            else
+                "${SCRIPT_DIR}/stop-solo.sh" || true
+            fi
             ;;
         hedera_testnet)
             # Nothing to stop for a remote network
@@ -184,36 +228,38 @@ stop_network() {
 # ============================================================================
 
 run_benchmark() {
-    local net="$1"
-    local output_file="${TEMP_DIR}/benchmark_${net}.txt"
+    local label="$1"
+    local net
+    net=$(net_name "$label")
+    local output_file="${TEMP_DIR}/benchmark_${label}.txt"
 
     echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-    echo -e "${CYAN}  Benchmarking: ${net}${NC}"
+    echo -e "${CYAN}  Benchmarking: $(display_name "$label")${NC}"
     echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
     echo ""
 
-    timing_init "$net"
+    timing_init "$label"
 
     # Stage 1: npm install (clean mode only)
     if $CLEAN_MODE; then
         echo -e "${YELLOW}Stage 1: npm install (clean)${NC}"
         rm -rf "$HARDHAT_DIR/node_modules"
-        timing_start "${net}_npm_install"
+        timing_start "${label}_npm_install"
         cd "$HARDHAT_DIR" && npm install
-        timing_end "${net}_npm_install"
+        timing_end "${label}_npm_install"
         echo ""
     fi
 
     # Stage 2: Tooling check (anvil only)
     if [ "$net" = "anvil" ]; then
         echo -e "${YELLOW}Stage 2: Tooling check (anvil)${NC}"
-        timing_start "${net}_tooling_check"
+        timing_start "${label}_tooling_check"
         if command -v anvil &>/dev/null; then
             echo -e "${GREEN}anvil found: $(command -v anvil)${NC}"
         else
             echo -e "${RED}anvil not found — install with: curl -L https://foundry.paradigm.xyz | bash && foundryup${NC}"
         fi
-        timing_end "${net}_tooling_check"
+        timing_end "${label}_tooling_check"
         echo ""
     fi
 
@@ -221,24 +267,24 @@ run_benchmark() {
     if $CLEAN_MODE; then
         echo -e "${YELLOW}Stage 3: Compile contracts (clean)${NC}"
         rm -rf "$HARDHAT_DIR/artifacts" "$HARDHAT_DIR/cache"
-        timing_start "${net}_compile"
+        timing_start "${label}_compile"
         cd "$HARDHAT_DIR" && npx hardhat compile
-        timing_end "${net}_compile"
+        timing_end "${label}_compile"
         echo ""
     fi
 
     # Stage 4: Network startup
     echo -e "${YELLOW}Stage 4: Network startup${NC}"
-    timing_start "${net}_startup"
+    timing_start "${label}_startup"
     if ! start_network "$net"; then
         echo -e "${RED}Failed to start ${net}, skipping${NC}"
-        timing_end "${net}_startup"
+        timing_end "${label}_startup"
         return 1
     fi
-    timing_end "${net}_startup"
+    timing_end "${label}_startup"
 
     # Stage 5: Contract benchmark
-    timing_start "${net}_benchmark"
+    timing_start "${label}_benchmark"
     echo ""
     echo -e "${YELLOW}Stage 5: Contract benchmark${NC}"
     echo -e "${CYAN}Running benchmark tests against ${net}...${NC}"
@@ -247,51 +293,51 @@ run_benchmark() {
     cd "$HARDHAT_DIR"
     if npx hardhat test test/DeployBenchmark.test.ts --network "$net" 2>&1 | tee "$output_file"; then
         echo ""
-        echo -e "${GREEN}Benchmark PASSED for ${net}${NC}"
+        echo -e "${GREEN}Benchmark PASSED for $(display_name "$label")${NC}"
     else
         echo ""
-        echo -e "${RED}Benchmark FAILED for ${net}${NC}"
+        echo -e "${RED}Benchmark FAILED for $(display_name "$label")${NC}"
     fi
-    timing_end "${net}_benchmark"
+    timing_end "${label}_benchmark"
 
     # Parse pass/fail from test output
     local passing failing total
     passing=$(grep -oE '[0-9]+ passing' "$output_file" 2>/dev/null | head -1 | grep -oE '[0-9]+' || echo "0")
     failing=$(grep -oE '[0-9]+ failing' "$output_file" 2>/dev/null | head -1 | grep -oE '[0-9]+' || echo "0")
     total=$((passing + failing))
-    NET_PASSED[$net]="$passing"
-    NET_FAILED[$net]="$failing"
-    NET_TOTAL[$net]="$total"
+    kv_set NET_PASSED "$label" "$passing"
+    kv_set NET_FAILED "$label" "$failing"
+    kv_set NET_TOTAL "$label" "$total"
     if [ "$failing" -eq 0 ] && [ "$passing" -gt 0 ]; then
-        NET_STATUS[$net]="PASS"
+        kv_set NET_STATUS "$label" "PASS"
     elif [ "$passing" -gt 0 ]; then
-        NET_STATUS[$net]="PARTIAL"
+        kv_set NET_STATUS "$label" "PARTIAL"
     else
-        NET_STATUS[$net]="FAIL"
+        kv_set NET_STATUS "$label" "FAIL"
     fi
 
     # Stage 6: Network shutdown
     if [ "$net" != "hedera_testnet" ]; then
         echo -e "${YELLOW}Stage 6: Network shutdown${NC}"
-        timing_start "${net}_shutdown"
+        timing_start "${label}_shutdown"
         stop_network "$net"
-        timing_end "${net}_shutdown"
+        timing_end "${label}_shutdown"
     fi
 
     echo ""
     timing_summary
 
-    # Export timing JSON for this network
-    timing_export_json "${TIMING_DATA_DIR}/${net}-timing.json"
+    # Export timing JSON for this run
+    timing_export_json "${TIMING_DATA_DIR}/${label}-timing.json"
 
     # Copy raw timing data
     if [ -f "$TIMING_DATA_FILE" ]; then
-        cp "$TIMING_DATA_FILE" "${TIMING_DATA_DIR}/${net}-timing-data.txt"
+        cp "$TIMING_DATA_FILE" "${TIMING_DATA_DIR}/${label}-timing-data.txt"
     fi
 
     # Copy benchmark output
     if [ -f "$output_file" ]; then
-        cp "$output_file" "${TIMING_DATA_DIR}/${net}-benchmark-output.txt"
+        cp "$output_file" "${TIMING_DATA_DIR}/${label}-benchmark-output.txt"
     fi
 }
 
@@ -304,8 +350,11 @@ parse_benchmark_output() {
     local step="$2"
 
     if [ -f "$file" ]; then
+        # Escape regex special chars in step names (e.g., parentheses in "Write (increment)")
+        local escaped_step
+        escaped_step=$(printf '%s' "$step" | sed 's/[()]/\\&/g')
         # Match lines like "║  Deploy contract          1234ms ║"
-        grep -oE "${step}[[:space:]]+[0-9]+ms" "$file" 2>/dev/null | grep -oE '[0-9]+ms' | head -1 || echo "N/A"
+        grep -oE "${escaped_step}[[:space:]]+[0-9]+ms" "$file" 2>/dev/null | grep -oE '[0-9]+ms' | head -1 || echo "N/A"
     else
         echo "N/A"
     fi
@@ -320,6 +369,14 @@ generate_report() {
 
     echo -e "${CYAN}Generating benchmark report...${NC}"
 
+    # Helper to read timing for a specific run label
+    timing_for() {
+        local lbl="$1"
+        local phase="$2"
+        TIMING_DATA_FILE="${TIMING_OUTPUT_DIR}/${lbl}-timing-data.txt"
+        timing_get_duration_formatted "${lbl}_${phase}" 2>/dev/null || echo "N/A"
+    }
+
     {
         # ── Header (matches existing report format) ──
         echo "# Hedera EVM Lab - Deploy Benchmark Report"
@@ -328,7 +385,9 @@ generate_report() {
         echo "**Report ID**: ${TIMESTAMP}"
         echo "**Test Mode**: deploy-benchmark"
         echo "**Networks**: ${NETWORKS[*]}"
-        if $CLEAN_MODE; then
+        if $WARM_CLUSTER; then
+            echo "**Run Type**: Warm Cluster (dependencies pre-installed, cluster persists between runs)"
+        elif $CLEAN_MODE; then
             echo "**Run Type**: Clean (full developer journey — npm install, compile, startup, benchmark)"
         else
             echo "**Run Type**: Warm (network startup + benchmark only)"
@@ -342,16 +401,17 @@ generate_report() {
         echo ""
         echo "| Network | Passed | Failed | Total | Pass Rate | Status |"
         echo "|---------|--------|--------|-------|-----------|--------|"
-        for net in "${NETWORKS[@]}"; do
-            local passed="${NET_PASSED[$net]:-0}"
-            local failed="${NET_FAILED[$net]:-0}"
-            local total="${NET_TOTAL[$net]:-0}"
-            local status="${NET_STATUS[$net]:-SKIP}"
-            local rate="N/A"
+        for label in "${RUN_LIST[@]}"; do
+            local passed failed total status rate
+            passed=$(kv_get NET_PASSED "$label" "0")
+            failed=$(kv_get NET_FAILED "$label" "0")
+            total=$(kv_get NET_TOTAL "$label" "0")
+            status=$(kv_get NET_STATUS "$label" "SKIP")
+            rate="N/A"
             if [ "$total" -gt 0 ]; then
                 rate="$(echo "scale=1; $passed * 100 / $total" | bc)%"
             fi
-            echo "| ${net} | ${passed} | ${failed} | ${total} | ${rate} | ${status} |"
+            echo "| $(display_name "$label") | ${passed} | ${failed} | ${total} | ${rate} | ${status} |"
         done
         echo ""
         echo "---"
@@ -364,8 +424,8 @@ generate_report() {
         # Build header
         local header="| Stage |"
         local separator="|-------|"
-        for net in "${NETWORKS[@]}"; do
-            header="${header} ${net} |"
+        for label in "${RUN_LIST[@]}"; do
+            header="${header} $(display_name "$label") |"
             separator="${separator}------|"
         done
         echo "$header"
@@ -375,24 +435,24 @@ generate_report() {
         if $CLEAN_MODE; then
             # npm install row
             local row="| npm install |"
-            for net in "${NETWORKS[@]}"; do
+            for label in "${RUN_LIST[@]}"; do
                 local value
-                value=$(timing_get_duration_formatted "${net}_npm_install" 2>/dev/null || echo "N/A")
+                value=$(timing_for "$label" "npm_install")
                 row="${row} ${value} |"
             done
             echo "$row"
 
-            # Tooling check row (only if anvil is in the network list)
+            # Tooling check row (only if anvil is in the run list)
             local has_tooling=false
-            for net in "${NETWORKS[@]}"; do
-                if [ "$net" = "anvil" ]; then has_tooling=true; break; fi
+            for label in "${RUN_LIST[@]}"; do
+                if [ "$(net_name "$label")" = "anvil" ]; then has_tooling=true; break; fi
             done
             if $has_tooling; then
                 row="| Tooling check |"
-                for net in "${NETWORKS[@]}"; do
-                    if [ "$net" = "anvil" ]; then
+                for label in "${RUN_LIST[@]}"; do
+                    if [ "$(net_name "$label")" = "anvil" ]; then
                         local value
-                        value=$(timing_get_duration_formatted "${net}_tooling_check" 2>/dev/null || echo "N/A")
+                        value=$(timing_for "$label" "tooling_check")
                         row="${row} ${value} |"
                     else
                         row="${row} — |"
@@ -403,9 +463,9 @@ generate_report() {
 
             # Compile row
             row="| Compile contracts |"
-            for net in "${NETWORKS[@]}"; do
+            for label in "${RUN_LIST[@]}"; do
                 local value
-                value=$(timing_get_duration_formatted "${net}_compile" 2>/dev/null || echo "N/A")
+                value=$(timing_for "$label" "compile")
                 row="${row} ${value} |"
             done
             echo "$row"
@@ -413,12 +473,14 @@ generate_report() {
 
         # Network startup row
         local row="| Network startup |"
-        for net in "${NETWORKS[@]}"; do
+        for label in "${RUN_LIST[@]}"; do
             local value
-            if [ "$net" = "hedera_testnet" ]; then
+            local real_net
+            real_net=$(net_name "$label")
+            if [ "$real_net" = "hedera_testnet" ]; then
                 value="N/A (remote)"
             else
-                value=$(timing_get_duration_formatted "${net}_startup" 2>/dev/null || echo "N/A")
+                value=$(timing_for "$label" "startup")
             fi
             row="${row} ${value} |"
         done
@@ -428,8 +490,8 @@ generate_report() {
         local steps=("Deploy contract" "Write (increment)" "Read (count)" "Event verification" "Write (setCount)" "Final read")
         for step in "${steps[@]}"; do
             local row="| ${step} |"
-            for net in "${NETWORKS[@]}"; do
-                local output_file="${TEMP_DIR}/benchmark_${net}.txt"
+            for label in "${RUN_LIST[@]}"; do
+                local output_file="${TEMP_DIR}/benchmark_${label}.txt"
                 local value
                 value=$(parse_benchmark_output "$output_file" "$step")
                 row="${row} ${value} |"
@@ -439,8 +501,8 @@ generate_report() {
 
         # Contract ops total row
         row="| **Contract ops total** |"
-        for net in "${NETWORKS[@]}"; do
-            local output_file="${TEMP_DIR}/benchmark_${net}.txt"
+        for label in "${RUN_LIST[@]}"; do
+            local output_file="${TEMP_DIR}/benchmark_${label}.txt"
             local value
             value=$(parse_benchmark_output "$output_file" "TOTAL")
             row="${row} **${value}** |"
@@ -449,12 +511,14 @@ generate_report() {
 
         # Network shutdown row
         row="| Network shutdown |"
-        for net in "${NETWORKS[@]}"; do
-            if [ "$net" = "hedera_testnet" ]; then
+        for label in "${RUN_LIST[@]}"; do
+            local real_net
+            real_net=$(net_name "$label")
+            if [ "$real_net" = "hedera_testnet" ]; then
                 row="${row} — |"
             else
                 local value
-                value=$(timing_get_duration_formatted "${net}_shutdown" 2>/dev/null || echo "N/A")
+                value=$(timing_for "$label" "shutdown")
                 row="${row} ${value} |"
             fi
         done
@@ -465,13 +529,16 @@ generate_report() {
         echo ""
 
         # ── Per-Network Details ──
-        for net in "${NETWORKS[@]}"; do
-            echo "## ${net}"
+        for label in "${RUN_LIST[@]}"; do
+            local real_net
+            real_net=$(net_name "$label")
+            echo "## $(display_name "$label")"
             echo ""
-            local output_file="${TIMING_DATA_DIR}/${net}-benchmark-output.txt"
-            local passed="${NET_PASSED[$net]:-0}"
-            local failed="${NET_FAILED[$net]:-0}"
-            local status="${NET_STATUS[$net]:-SKIP}"
+            local output_file="${TIMING_DATA_DIR}/${label}-benchmark-output.txt"
+            local passed failed status
+            passed=$(kv_get NET_PASSED "$label" "0")
+            failed=$(kv_get NET_FAILED "$label" "0")
+            status=$(kv_get NET_STATUS "$label" "SKIP")
             echo "**Status**: ${status} (${passed} passed, ${failed} failed)"
             echo ""
 
@@ -497,27 +564,27 @@ generate_report() {
             echo "|-------|----------|"
             if $CLEAN_MODE; then
                 local npm_val compile_val
-                npm_val=$(timing_get_duration_formatted "${net}_npm_install" 2>/dev/null || echo "N/A")
-                compile_val=$(timing_get_duration_formatted "${net}_compile" 2>/dev/null || echo "N/A")
+                npm_val=$(timing_for "$label" "npm_install")
+                compile_val=$(timing_for "$label" "compile")
                 echo "| npm install | ${npm_val} |"
-                if [ "$net" = "anvil" ]; then
+                if [ "$real_net" = "anvil" ]; then
                     local tool_val
-                    tool_val=$(timing_get_duration_formatted "${net}_tooling_check" 2>/dev/null || echo "N/A")
+                    tool_val=$(timing_for "$label" "tooling_check")
                     echo "| Tooling check | ${tool_val} |"
                 fi
                 echo "| Compile | ${compile_val} |"
             fi
             local startup_val benchmark_val shutdown_val
-            if [ "$net" = "hedera_testnet" ]; then
+            if [ "$real_net" = "hedera_testnet" ]; then
                 startup_val="N/A (remote)"
             else
-                startup_val=$(timing_get_duration_formatted "${net}_startup" 2>/dev/null || echo "N/A")
+                startup_val=$(timing_for "$label" "startup")
             fi
-            benchmark_val=$(timing_get_duration_formatted "${net}_benchmark" 2>/dev/null || echo "N/A")
+            benchmark_val=$(timing_for "$label" "benchmark")
             echo "| Network startup | ${startup_val} |"
             echo "| Benchmark run | ${benchmark_val} |"
-            if [ "$net" != "hedera_testnet" ]; then
-                shutdown_val=$(timing_get_duration_formatted "${net}_shutdown" 2>/dev/null || echo "N/A")
+            if [ "$real_net" != "hedera_testnet" ]; then
+                shutdown_val=$(timing_for "$label" "shutdown")
                 echo "| Shutdown | ${shutdown_val} |"
             fi
             echo ""
@@ -567,8 +634,8 @@ generate_report() {
 
 OVERALL_START=$(date +%s)
 
-for net in "${NETWORKS[@]}"; do
-    run_benchmark "$net" || true
+for label in "${RUN_LIST[@]}"; do
+    run_benchmark "$label" || true
     echo ""
 done
 

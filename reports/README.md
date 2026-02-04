@@ -18,7 +18,7 @@ YYYY-MM-DD_HH-MM-SS_[description].md
 ./scripts/generate-report.sh [hardhat_output] [foundry_output] [network]
 ```
 
-### Deploy benchmark (single contract, cold start)
+### Deploy benchmark (single contract)
 
 ```bash
 # Full developer journey (wipes node_modules + artifacts)
@@ -29,6 +29,11 @@ YYYY-MM-DD_HH-MM-SS_[description].md
 
 # Warm mode (skip install/compile)
 ./scripts/run-deploy-benchmark.sh --warm solo
+
+# Warm cluster (two-run comparison: 1st start vs 2nd start with cluster preserved)
+./scripts/run-deploy-benchmark.sh --warm-cluster solo
+./scripts/run-deploy-benchmark.sh --warm-cluster local    # anvil + localnode + solo
+./scripts/run-deploy-benchmark.sh --warm-cluster all
 ```
 
 ## Report Types
@@ -61,6 +66,7 @@ JSON exports and raw timing entries.
 |------|------|----------|---------|
 | 2026-01-20 | Full suite | Local Node, Solo | First full suite run — Solo: 89.8%, Local Node: 82.0% |
 | 2026-01-28 | Full suite | Local Node, Solo | Both networks — Hardhat 86-88%, Foundry 95.8% |
+| 2026-02-04 | Deploy benchmark (warm-cluster) | Solo | Two-run comparison: startup 884s → 31s (96.5% reduction), contract ops 38s → 27s (30% faster) |
 
 ## Viewing Reports
 

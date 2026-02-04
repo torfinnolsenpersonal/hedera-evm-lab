@@ -1,0 +1,39 @@
+WARNING: You are currently using Node.js v25.5.0, which is not supported by Hardhat. This can lead to unexpected behavior. See https://v2.hardhat.org/nodejs-versions
+
+
+
+
+  Deploy Benchmark
+
+╔══════════════════════════════════════════════════════════╗
+║         DEPLOY BENCHMARK - solo                        ║
+╠══════════════════════════════════════════════════════════╣
+║  Default Wait:   2500ms                                ║
+║  Intermediate:   1500ms                                ║
+║  Timeout:        90000ms                               ║
+╚══════════════════════════════════════════════════════════╝
+
+    ✔ Step 1: Deploy Counter contract (8803ms)
+    ✔ Step 2: Write - increment() (9014ms)
+    ✔ Step 3: Read - count() (137ms)
+    ✔ Step 4: Event verification - CountChanged
+    ✔ Step 5: Write - setCount(42) (8378ms)
+    ✔ Step 6: Final read - verify count() == 42 (481ms)
+
+╔══════════════════════════════════════════════════════════╗
+║         DEPLOY BENCHMARK - solo                        ║
+╠══════════════════════════════════════════════════════════╣
+║  Deploy contract                                8803ms ║
+║  Write (increment)                              9014ms ║
+║  Read (count)                                    137ms ║
+║  Event verification                               33ms ║
+║  Write (setCount)                               8377ms ║
+║  Final read                                      481ms ║
+╠══════════════════════════════════════════════════════════╣
+║  TOTAL                                         26845ms ║
+╚══════════════════════════════════════════════════════════╝
+
+
+
+  6 passing (27s)
+

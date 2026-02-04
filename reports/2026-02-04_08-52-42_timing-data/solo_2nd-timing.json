@@ -1,0 +1,22 @@
+{
+  "network": "solo_2nd",
+  "timestamp": "2026-02-04T17:09:20Z",
+  "total_duration_ms": 67943,
+  "phases": {
+    "solo_2nd_startup": {
+      "duration_ms": 30640,
+      "start_ms": 1770224893049,
+      "end_ms": 1770224923689
+    },
+    "solo_2nd_benchmark": {
+      "duration_ms": 34649,
+      "start_ms": 1770224923727,
+      "end_ms": 1770224958376
+    },
+    "solo_2nd_shutdown": {
+      "duration_ms": 2478,
+      "start_ms": 1770224958441,
+      "end_ms": 1770224960919
+    }
+  }
+}
