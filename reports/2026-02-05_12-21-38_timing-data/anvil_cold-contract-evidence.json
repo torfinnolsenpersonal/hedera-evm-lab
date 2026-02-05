@@ -1,0 +1,11 @@
+{
+  "label": "anvil_cold",
+  "network": "anvil",
+  "address": "0x5FbDB2315678afecb367f032d93F642f64180aa3",
+  "bytecode_sha256": "0x648c085f7595974d1df3ebf3f3718e2abef1ea5a695812ee630d5043e22d003c",
+  "deploy_tx": "0x014755a0cee24f0b0b4cf24d6d77e4d524e3996117c466695d996172fbb2cda1",
+  "step_tx_hashes": {
+    "increment": "0xa748514c11d04afd024966b0176c7aa981e122ea23de91ade99ee1f4e0262eb1",
+    "setCount": "0xf9bf8a85f54ba817202ebea0a4c795009de123576c5461a1ec41fa512ce5b89a"
+  }
+}

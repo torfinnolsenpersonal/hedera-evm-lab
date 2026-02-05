@@ -29,6 +29,9 @@ REPORTS_DIR="${PROJECT_ROOT}/reports"
 # Source timing library
 source "${SCRIPT_DIR}/lib/timing.sh"
 
+# Source evidence library
+source "${SCRIPT_DIR}/lib/evidence.sh"
+
 # Colors
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -87,6 +90,12 @@ mkdir -p "$REPORTS_DIR"
 # Timing data directory (persisted alongside the report)
 TIMING_DATA_DIR="${REPORTS_DIR}/${TIMESTAMP}_timing-data"
 mkdir -p "$TIMING_DATA_DIR"
+
+# Initialize evidence collection
+evidence_init "$TIMESTAMP" "$TIMING_DATA_DIR"
+
+# Evidence directory for contract artifacts (exported to hardhat test)
+export BENCHMARK_EVIDENCE_DIR="${TIMING_DATA_DIR}"
 
 # Track per-network results: pass/fail/skip (bash 3.x compatible key-value store)
 # Keys are sanitized labels: solo_1st, anvil, hedera_testnet_2nd, etc.
@@ -261,6 +270,28 @@ stop_network() {
     esac
 }
 
+# Ensure a clean environment before starting a network.
+# Force-stops the network, runs cleanup.sh to kill stragglers, then verifies.
+ensure_network_clean() {
+    local net="$1"
+    echo -e "${YELLOW}Ensuring clean slate for ${net}...${NC}"
+
+    # 1. Force-stop the network (full mode — destroy everything)
+    stop_network "$net" "full" 2>/dev/null || true
+
+    # 2. Run cleanup.sh to kill stragglers (port-forwards, orphan containers)
+    "${SCRIPT_DIR}/cleanup.sh" 2>/dev/null || true
+
+    # 3. Verify clean state
+    if ! "${SCRIPT_DIR}/cleanup.sh" --verify-only >/dev/null 2>&1; then
+        echo -e "${YELLOW}Environment not fully clean, retrying cleanup...${NC}"
+        sleep 2
+        "${SCRIPT_DIR}/cleanup.sh" 2>/dev/null || true
+    fi
+
+    echo -e "${GREEN}Clean slate confirmed for ${net}${NC}"
+}
+
 # Verify RPC endpoint is healthy (used for hot restart where network is already running)
 # Arguments:
 #   $1 - RPC URL (default: http://127.0.0.1:7546)
@@ -344,6 +375,11 @@ run_benchmark() {
     echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
     echo ""
 
+    # Ensure no stale infrastructure from a previous session
+    if [ "$net" != "hedera_testnet" ]; then
+        ensure_network_clean "$net"
+    fi
+
     timing_init "$label"
 
     # Stage 1: npm install (clean mode only)
@@ -397,7 +433,12 @@ run_benchmark() {
     echo ""
 
     cd "$HARDHAT_DIR"
-    if npx hardhat test test/DeployBenchmark.test.ts --network "$net" 2>&1 | tee "$output_file"; then
+    export BENCHMARK_LABEL="$label"
+    set +e
+    BENCHMARK_LABEL="$label" npx hardhat test test/DeployBenchmark.test.ts --network "$net" 2>&1 | tee "$output_file"
+    local bench_exit=${PIPESTATUS[0]}
+    set -e
+    if [ "$bench_exit" -eq 0 ]; then
         echo ""
         echo -e "${GREEN}Benchmark PASSED for $(display_name "$label")${NC}"
     else
@@ -405,6 +446,15 @@ run_benchmark() {
         echo -e "${RED}Benchmark FAILED for $(display_name "$label")${NC}"
     fi
     timing_end "${label}_benchmark"
+
+    # Evidence: record benchmark step
+    evidence_record_step "${label}_benchmark" "hardhat test --network $net" "$bench_exit" "$output_file"
+
+    # Evidence: record contract if artifact exists
+    local contract_artifact="${BENCHMARK_EVIDENCE_DIR}/${label}-contract-evidence.json"
+    if [ -f "$contract_artifact" ]; then
+        evidence_record_contract "$contract_artifact"
+    fi
 
     # Parse pass/fail from test output
     local passing failing total
@@ -517,7 +567,12 @@ run_benchmark_lifecycle() {
     echo ""
 
     cd "$HARDHAT_DIR"
-    if npx hardhat test test/DeployBenchmark.test.ts --network "$net" 2>&1 | tee "$output_file"; then
+    export BENCHMARK_LABEL="$label"
+    set +e
+    BENCHMARK_LABEL="$label" npx hardhat test test/DeployBenchmark.test.ts --network "$net" 2>&1 | tee "$output_file"
+    local bench_exit=${PIPESTATUS[0]}
+    set -e
+    if [ "$bench_exit" -eq 0 ]; then
         echo ""
         echo -e "${GREEN}Benchmark PASSED for $(display_name "$label")${NC}"
     else
@@ -525,6 +580,13 @@ run_benchmark_lifecycle() {
         echo -e "${RED}Benchmark FAILED for $(display_name "$label")${NC}"
     fi
     timing_end "${label}_benchmark"
+
+    # Evidence: record benchmark step and contract
+    evidence_record_step "${label}_benchmark" "hardhat test --network $net" "$bench_exit" "$output_file"
+    local contract_artifact="${BENCHMARK_EVIDENCE_DIR}/${label}-contract-evidence.json"
+    if [ -f "$contract_artifact" ]; then
+        evidence_record_contract "$contract_artifact"
+    fi
 
     # Parse pass/fail from test output
     local passing failing total
@@ -566,6 +628,75 @@ run_benchmark_lifecycle() {
 }
 
 # ============================================================================
+# Full Lifecycle: Anvil (2 scenarios — cold + hot)
+# ============================================================================
+
+run_anvil_lifecycle() {
+    echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo -e "${CYAN}  Anvil Full Lifecycle (cold → hot)${NC}"
+    echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo ""
+
+    # Ensure no stale anvil process from a previous session
+    ensure_network_clean anvil
+
+    # ── Step 1: anvil_cold — start anvil, run benchmark, keep running ──
+    echo -e "${CYAN}[1/2] anvil_cold: start + benchmark${NC}"
+    local cold_label="anvil_cold"
+    RUN_LIST+=("$cold_label")
+    run_benchmark_lifecycle "$cold_label" "start_network anvil" "none" || true
+    echo ""
+
+    # ── Step 2: anvil_hot — network already running, health check + benchmark, then stop ──
+    echo -e "${CYAN}[2/2] anvil_hot: health check + benchmark${NC}"
+    local hot_label="anvil_hot"
+    RUN_LIST+=("$hot_label")
+    _anvil_hot_startup() {
+        echo -e "${CYAN}Verifying Anvil is still running...${NC}"
+        verify_rpc_health "http://127.0.0.1:${RPC_PORT:-8545}" 10 1
+    }
+    run_benchmark_lifecycle "$hot_label" "_anvil_hot_startup" "auto" || true
+    echo ""
+}
+
+# ============================================================================
+# Full Lifecycle: Hedera Testnet (2 scenarios — cold + warm)
+# ============================================================================
+
+run_testnet_lifecycle() {
+    echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo -e "${CYAN}  Hedera Testnet Full Lifecycle (cold → warm)${NC}"
+    echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo ""
+
+    # ── Step 1: hedera_testnet_cold — first connection ──
+    echo -e "${CYAN}[1/2] hedera_testnet_cold: first connection + benchmark${NC}"
+    local cold_label="hedera_testnet_cold"
+    RUN_LIST+=("$cold_label")
+    run_benchmark_lifecycle "$cold_label" "start_network hedera_testnet" "none" || true
+    echo ""
+
+    # ── Step 2: hedera_testnet_warm — cached connection ──
+    echo -e "${CYAN}[2/2] hedera_testnet_warm: cached connection + benchmark${NC}"
+    local warm_label="hedera_testnet_warm"
+    RUN_LIST+=("$warm_label")
+    _testnet_warm_startup() {
+        echo -e "${CYAN}Re-validating Hedera Testnet connectivity (cached)...${NC}"
+        local rpc_url="${HEDERA_TESTNET_RPC_URL:-https://testnet.hashio.io/api}"
+        if curl -s "$rpc_url" -X POST -H "Content-Type: application/json" \
+            -d '{"jsonrpc":"2.0","method":"eth_chainId","params":[],"id":1}' 2>/dev/null | grep -q "0x128"; then
+            echo -e "${GREEN}Hedera Testnet reachable${NC}"
+            return 0
+        else
+            echo -e "${RED}Cannot reach Hedera Testnet${NC}"
+            return 1
+        fi
+    }
+    run_benchmark_lifecycle "$warm_label" "_testnet_warm_startup" "none" || true
+    echo ""
+}
+
+# ============================================================================
 # Full Lifecycle: Solo (4 scenarios)
 # ============================================================================
 
@@ -574,6 +705,9 @@ run_solo_lifecycle() {
     echo -e "${CYAN}  Solo Full Lifecycle (install → cold → warm → hot)${NC}"
     echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
     echo ""
+
+    # Ensure no stale kind cluster or port-forwards from a previous session
+    ensure_network_clean solo
 
     # ── Step 1: solo_install — brew reinstall solo timing ──
     echo -e "${CYAN}[1/4] solo_install: brew reinstall solo${NC}"
@@ -647,26 +781,56 @@ run_solo_lifecycle() {
 
 run_localnode_lifecycle() {
     echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-    echo -e "${CYAN}  Local Node Full Lifecycle (cold → restart → docker_warm)${NC}"
+    echo -e "${CYAN}  Local Node Full Lifecycle (install → cold → restart → docker_warm)${NC}"
     echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
     echo ""
 
-    # ── Step 1: localnode_cold — full cold start ──
-    echo -e "${CYAN}[1/3] localnode_cold: full cold start${NC}"
+    # Ensure no stale containers or networks from a previous session
+    ensure_network_clean localnode
+
+    # ── Step 1: localnode_install — npm install -g @hashgraph/hedera-local ──
+    echo -e "${CYAN}[1/4] localnode_install: npm install -g @hashgraph/hedera-local${NC}"
+    local install_label="localnode_install"
+    RUN_LIST+=("$install_label")
+    timing_init "$install_label"
+    timing_start "${install_label}_startup"
+
+    if npm install -g @hashgraph/hedera-local 2>&1; then
+        echo -e "${GREEN}hedera-local installed successfully${NC}"
+        kv_set NET_STATUS "$install_label" "PASS"
+    else
+        echo -e "${RED}npm install -g @hashgraph/hedera-local failed${NC}"
+        kv_set NET_STATUS "$install_label" "FAIL"
+    fi
+
+    timing_end "${install_label}_startup"
+    kv_set NET_PASSED "$install_label" "0"
+    kv_set NET_FAILED "$install_label" "0"
+    kv_set NET_TOTAL "$install_label" "0"
+
+    timing_summary
+    timing_export_json "${TIMING_DATA_DIR}/${install_label}-timing.json"
+    if [ -f "$TIMING_DATA_FILE" ]; then
+        cp "$TIMING_DATA_FILE" "${TIMING_DATA_DIR}/${install_label}-timing-data.txt"
+    fi
+    echo ""
+
+    # ── Step 2: localnode_cold — full cold start ──
+    echo -e "${CYAN}[2/4] localnode_cold: full cold start${NC}"
     local cold_label="localnode_cold"
     RUN_LIST+=("$cold_label")
     run_benchmark_lifecycle "$cold_label" "start_network localnode" "full" || true
     echo ""
 
-    # ── Step 2: localnode_restart — CLI restart (hedera start after full stop) ──
-    echo -e "${CYAN}[2/3] localnode_restart: CLI restart${NC}"
+    # ── Step 3: localnode_restart — CLI restart (hedera start after full stop) ──
+    echo -e "${CYAN}[3/4] localnode_restart: CLI restart${NC}"
     local restart_label="localnode_restart"
     RUN_LIST+=("$restart_label")
     run_benchmark_lifecycle "$restart_label" "start_network localnode" "docker-stop" || true
     echo ""
 
-    # ── Step 3: localnode_docker_warm — docker compose start (containers stopped, volumes preserved) ──
-    echo -e "${CYAN}[3/3] localnode_docker_warm: docker compose start (experimental)${NC}"
+    # ── Step 4: localnode_docker_warm — docker compose start (containers stopped, volumes preserved) ──
+    echo -e "${CYAN}[4/4] localnode_docker_warm: docker compose start (experimental)${NC}"
     local docker_warm_label="localnode_docker_warm"
     RUN_LIST+=("$docker_warm_label")
     run_benchmark_lifecycle "$docker_warm_label" "start_localnode_docker_only" "full" || true
@@ -686,32 +850,39 @@ run_full_lifecycle() {
     local has_solo=false
     local has_localnode=false
     local has_anvil=false
+    local has_testnet=false
 
     for net in "${NETWORKS[@]}"; do
         case "$net" in
             solo) has_solo=true ;;
             localnode) has_localnode=true ;;
             anvil) has_anvil=true ;;
+            hedera_testnet) has_testnet=true ;;
         esac
     done
 
-    # Anvil: just run a single warm benchmark (no lifecycle variations)
+    # Anvil lifecycle (cold + hot)
     if $has_anvil; then
-        echo -e "${CYAN}━━━ Anvil (baseline) ━━━${NC}"
-        RUN_LIST+=("anvil")
-        run_benchmark "anvil" "auto" || true
-        echo ""
+        run_anvil_lifecycle
     fi
 
-    # Solo lifecycle
+    # Solo lifecycle (install + cold + warm + hot)
     if $has_solo; then
         run_solo_lifecycle
     fi
 
-    # Local Node lifecycle
+    # Local Node lifecycle (install + cold + restart + docker_warm)
     if $has_localnode; then
         run_localnode_lifecycle
     fi
+
+    # Hedera Testnet lifecycle (cold + warm)
+    if $has_testnet; then
+        run_testnet_lifecycle
+    fi
+
+    # Finalize evidence before report generation
+    evidence_finalize
 
     # Generate the unified lifecycle report
     generate_lifecycle_report
@@ -755,50 +926,139 @@ generate_lifecycle_report() {
         echo "---"
         echo ""
 
+        # ── Evidence & Verification ──
+        echo "## Evidence & Verification"
+        echo ""
+        echo "| Field | Value |"
+        echo "|-------|-------|"
+        echo "| Git commit | \`$(git rev-parse --short HEAD 2>/dev/null || echo 'unknown')\` |"
+        echo "| Git branch | \`$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo 'unknown')\` |"
+        local dirty_status="clean"
+        if ! git diff --quiet HEAD 2>/dev/null; then dirty_status="dirty"; fi
+        echo "| Working tree | ${dirty_status} |"
+        echo "| Run ID | ${TIMESTAMP} |"
+        echo "| Evidence file | \`${TIMESTAMP}_timing-data/${TIMESTAMP}_evidence.json\` |"
+        echo ""
+        echo "---"
+        echo ""
+
         # ── Test Matrix ──
         echo "## Test Matrix"
         echo ""
-        echo "### Solo (Kubernetes/kind — 3-layer architecture)"
-        echo ""
-        echo "| Run | What It Tests | Result |"
-        echo "|-----|---------------|--------|"
+
+        # Anvil section
+        local has_anvil_labels=false
         for label in "${RUN_LIST[@]}"; do
-            local net
-            net=$(net_name "$label")
-            if [ "$net" = "solo" ]; then
-                local status
-                status=$(kv_get NET_STATUS "$label" "SKIP")
-                local desc=""
-                case "$label" in
-                    solo_install) desc="CLI install timing (brew reinstall)" ;;
-                    solo_cold) desc="Full cold start (kind create + deploy)" ;;
-                    solo_warm) desc="Warm restart (redeploy on existing cluster)" ;;
-                    solo_hot) desc="Hot restart (health check only)" ;;
-                esac
-                echo "| $(display_name "$label") | ${desc} | ${status} |"
-            fi
+            if [ "$(net_name "$label")" = "anvil" ]; then has_anvil_labels=true; break; fi
         done
-        echo ""
-        echo "### Local Node (Docker Compose — 2-layer architecture)"
-        echo ""
-        echo "| Run | What It Tests | Result |"
-        echo "|-----|---------------|--------|"
+        if $has_anvil_labels; then
+            echo "### Anvil (local Ethereum — baseline)"
+            echo ""
+            echo "| Run | What It Tests | Result |"
+            echo "|-----|---------------|--------|"
+            for label in "${RUN_LIST[@]}"; do
+                local net
+                net=$(net_name "$label")
+                if [ "$net" = "anvil" ]; then
+                    local status
+                    status=$(kv_get NET_STATUS "$label" "SKIP")
+                    local desc=""
+                    case "$label" in
+                        anvil) desc="Single run (start + benchmark + stop)" ;;
+                        anvil_cold) desc="Cold start (start anvil + benchmark)" ;;
+                        anvil_hot) desc="Hot restart (already running, health check only)" ;;
+                    esac
+                    echo "| $(display_name "$label") | ${desc} | ${status} |"
+                fi
+            done
+            echo ""
+        fi
+
+        # Solo section
+        local has_solo_labels=false
         for label in "${RUN_LIST[@]}"; do
-            local net
-            net=$(net_name "$label")
-            if [ "$net" = "localnode" ]; then
-                local status
-                status=$(kv_get NET_STATUS "$label" "SKIP")
-                local desc=""
-                case "$label" in
-                    localnode_cold) desc="Full cold start (hedera start)" ;;
-                    localnode_restart) desc="CLI restart (hedera start after full stop)" ;;
-                    localnode_docker_warm) desc="Docker warm (docker compose start, experimental)" ;;
-                esac
-                echo "| $(display_name "$label") | ${desc} | ${status} |"
-            fi
+            if [ "$(net_name "$label")" = "solo" ]; then has_solo_labels=true; break; fi
         done
-        echo ""
+        if $has_solo_labels; then
+            echo "### Solo (Kubernetes/kind — 3-layer architecture)"
+            echo ""
+            echo "| Run | What It Tests | Result |"
+            echo "|-----|---------------|--------|"
+            for label in "${RUN_LIST[@]}"; do
+                local net
+                net=$(net_name "$label")
+                if [ "$net" = "solo" ]; then
+                    local status
+                    status=$(kv_get NET_STATUS "$label" "SKIP")
+                    local desc=""
+                    case "$label" in
+                        solo_install) desc="CLI install timing (brew reinstall)" ;;
+                        solo_cold) desc="Full cold start (kind create + deploy)" ;;
+                        solo_warm) desc="Warm restart (redeploy on existing cluster)" ;;
+                        solo_hot) desc="Hot restart (health check only)" ;;
+                    esac
+                    echo "| $(display_name "$label") | ${desc} | ${status} |"
+                fi
+            done
+            echo ""
+        fi
+
+        # Local Node section
+        local has_localnode_labels=false
+        for label in "${RUN_LIST[@]}"; do
+            if [ "$(net_name "$label")" = "localnode" ]; then has_localnode_labels=true; break; fi
+        done
+        if $has_localnode_labels; then
+            echo "### Local Node (Docker Compose — 2-layer architecture)"
+            echo ""
+            echo "| Run | What It Tests | Result |"
+            echo "|-----|---------------|--------|"
+            for label in "${RUN_LIST[@]}"; do
+                local net
+                net=$(net_name "$label")
+                if [ "$net" = "localnode" ]; then
+                    local status
+                    status=$(kv_get NET_STATUS "$label" "SKIP")
+                    local desc=""
+                    case "$label" in
+                        localnode_install) desc="CLI install timing (npm install -g)" ;;
+                        localnode_cold) desc="Full cold start (hedera start)" ;;
+                        localnode_restart) desc="CLI restart (hedera start after full stop)" ;;
+                        localnode_docker_warm) desc="Docker warm (docker compose start, experimental)" ;;
+                    esac
+                    echo "| $(display_name "$label") | ${desc} | ${status} |"
+                fi
+            done
+            echo ""
+        fi
+
+        # Hedera Testnet section
+        local has_testnet_labels=false
+        for label in "${RUN_LIST[@]}"; do
+            if [ "$(net_name "$label")" = "hedera_testnet" ]; then has_testnet_labels=true; break; fi
+        done
+        if $has_testnet_labels; then
+            echo "### Hedera Testnet (remote network)"
+            echo ""
+            echo "| Run | What It Tests | Result |"
+            echo "|-----|---------------|--------|"
+            for label in "${RUN_LIST[@]}"; do
+                local net
+                net=$(net_name "$label")
+                if [ "$net" = "hedera_testnet" ]; then
+                    local status
+                    status=$(kv_get NET_STATUS "$label" "SKIP")
+                    local desc=""
+                    case "$label" in
+                        hedera_testnet_cold) desc="First connection + benchmark" ;;
+                        hedera_testnet_warm) desc="Cached connection + benchmark" ;;
+                    esac
+                    echo "| $(display_name "$label") | ${desc} | ${status} |"
+                fi
+            done
+            echo ""
+        fi
+
         echo "---"
         echo ""
 
@@ -997,8 +1257,86 @@ generate_lifecycle_report() {
             echo ""
         done
 
+        # ── Setup Requirements ──
+        echo "## Setup Requirements"
+        echo ""
+        echo "| Network | Prerequisites | Install Command | Measured Install Time |"
+        echo "|---------|--------------|-----------------|----------------------|"
+        # Anvil
+        local anvil_install_time="N/A"
+        echo "| Anvil | Foundry | \`curl -L https://foundry.paradigm.xyz \\| bash && foundryup\` | ${anvil_install_time} |"
+        # Solo
+        local solo_install_time
+        solo_install_time=$(timing_for "solo_install" "startup")
+        echo "| Solo | Homebrew, Docker, kubectl, kind, helm | \`brew tap hiero-ledger/tools && brew install solo\` | ${solo_install_time} |"
+        # Local Node
+        local localnode_install_time
+        localnode_install_time=$(timing_for "localnode_install" "startup")
+        echo "| Local Node | Docker, Docker Compose, Node.js 20+ | \`npm install -g @hashgraph/hedera-local\` | ${localnode_install_time} |"
+        # Testnet
+        echo "| Hedera Testnet | HEDERA_TESTNET_PRIVATE_KEY | N/A (remote) | N/A |"
+        echo ""
+        echo "---"
+        echo ""
+
+        # ── Developer Loop Comparison ──
+        echo "## Developer Loop Comparison"
+        echo ""
+        echo "Fastest retest path for each network (after initial setup):"
+        echo ""
+        echo "| Network | Fastest Retest | Startup Time | Contract Ops |"
+        echo "|---------|---------------|-------------|-------------|"
+        # Find fastest scenario per network
+        for net_type in anvil solo localnode hedera_testnet; do
+            local best_label="" best_startup_ms=999999999
+            for label in "${RUN_LIST[@]}"; do
+                local net
+                net=$(net_name "$label")
+                # Skip install-only labels
+                case "$label" in *_install) continue ;; esac
+                if [ "$net" = "$net_type" ]; then
+                    local ms
+                    ms=$(timing_for_ms "$label" "startup")
+                    if [ -n "$ms" ] && [ "$ms" -lt "$best_startup_ms" ] 2>/dev/null; then
+                        best_startup_ms=$ms
+                        best_label=$label
+                    fi
+                fi
+            done
+            if [ -n "$best_label" ]; then
+                local startup_val benchmark_val
+                startup_val=$(timing_for "$best_label" "startup")
+                local output_file="${TEMP_DIR}/benchmark_${best_label}.txt"
+                benchmark_val=$(parse_benchmark_output "$output_file" "TOTAL")
+                echo "| ${net_type} | $(display_name "$best_label") | ${startup_val} | ${benchmark_val} |"
+            fi
+        done
+        echo ""
+        echo "---"
+        echo ""
+
+        # ── CI Recommendations ──
+        echo "## CI Recommendations"
+        echo ""
+        echo "| CI Use Case | Recommended Network | Why |"
+        echo "|------------|-------------------|-----|"
+        echo "| Unit tests / fast feedback | Anvil | Near-instant startup, full EVM compatibility |"
+        echo "| Hedera-specific behavior | Solo (warm) or Local Node | Hedera EVM with mirror node; Solo warm avoids cluster creation overhead |"
+        echo "| Pre-merge PR checks | Local Node (cold) | Deterministic from-scratch environment, moderate startup |"
+        echo "| Nightly / full regression | Solo (cold) | Full Kubernetes deployment, closest to production topology |"
+        echo "| Testnet integration | Hedera Testnet | Real network validation before mainnet deploy |"
+        echo ""
+        echo "---"
+        echo ""
+
         # ── Architecture Analysis ──
         echo "## Architecture Analysis"
+        echo ""
+        echo "### Anvil (local Ethereum — baseline)"
+        echo ""
+        echo "Anvil is a local Ethereum node from the Foundry toolkit. It starts in under a second"
+        echo "and provides full EVM compatibility. It serves as the performance baseline — any Hedera-specific"
+        echo "overhead shows up as the delta between Anvil and the Hedera networks."
         echo ""
         echo "### Solo (Kubernetes / kind — 3-layer architecture)"
         echo ""
@@ -1024,6 +1362,12 @@ generate_lifecycle_report() {
         echo ""
         echo "The 2-layer architecture is simpler but offers fewer restart strategies."
         echo "\`hedera stop\` is all-or-nothing — there's no equivalent to Solo's \`--keep-cluster\`."
+        echo ""
+        echo "### Hedera Testnet (remote network)"
+        echo ""
+        echo "Hedera Testnet is a remote network — no local infrastructure to manage."
+        echo "Startup time is just connection validation. Contract operations reflect real network latency"
+        echo "and gas pricing. Useful for integration testing before mainnet deployment."
         echo ""
 
         # ── Environment ──
@@ -1086,6 +1430,22 @@ generate_report() {
         else
             echo "**Run Type**: Warm (network startup + benchmark only)"
         fi
+        echo ""
+        echo "---"
+        echo ""
+
+        # ── Evidence & Verification ──
+        echo "## Evidence & Verification"
+        echo ""
+        echo "| Field | Value |"
+        echo "|-------|-------|"
+        echo "| Git commit | \`$(git rev-parse --short HEAD 2>/dev/null || echo 'unknown')\` |"
+        echo "| Git branch | \`$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo 'unknown')\` |"
+        local dirty_status="clean"
+        if ! git diff --quiet HEAD 2>/dev/null; then dirty_status="dirty"; fi
+        echo "| Working tree | ${dirty_status} |"
+        echo "| Run ID | ${TIMESTAMP} |"
+        echo "| Evidence file | \`${TIMESTAMP}_timing-data/${TIMESTAMP}_evidence.json\` |"
         echo ""
         echo "---"
         echo ""
@@ -1337,6 +1697,9 @@ else
         run_benchmark "$label" || true
         echo ""
     done
+
+    # Finalize evidence before report generation
+    evidence_finalize
 
     generate_report
 fi

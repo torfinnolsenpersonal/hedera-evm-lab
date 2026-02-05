@@ -1,0 +1,45 @@
+WARNING: You are currently using Node.js v25.5.0, which is not supported by Hardhat. This can lead to unexpected behavior. See https://v2.hardhat.org/nodejs-versions
+
+
+
+
+  Deploy Benchmark
+
+╔══════════════════════════════════════════════════════════╗
+║         DEPLOY BENCHMARK - localnode                   ║
+╠══════════════════════════════════════════════════════════╣
+║  Default Wait:   500ms                                 ║
+║  Intermediate:   300ms                                 ║
+║  Timeout:        40000ms                               ║
+╚══════════════════════════════════════════════════════════╝
+
+    ✔ Step 1: Deploy Counter contract (7147ms)
+    ✔ Step 2: Write - increment() (6175ms)
+    ✔ Step 3: Read - count() (505ms)
+    ✔ Step 4: Event verification - CountChanged (81ms)
+    ✔ Step 5: Write - setCount(42) (1866ms)
+    ✔ Step 6: Final read - verify count() == 42 (88ms)
+
+╔══════════════════════════════════════════════════════════╗
+║         DEPLOY BENCHMARK - localnode                   ║
+╠══════════════════════════════════════════════════════════╣
+║  Deploy contract                                7134ms ║
+║  Write (increment)                              6175ms ║
+║  Read (count)                                    505ms ║
+║  Event verification                               81ms ║
+║  Write (setCount)                               1866ms ║
+║  Final read                                       88ms ║
+╠══════════════════════════════════════════════════════════╣
+║  TOTAL                                         15849ms ║
+╚══════════════════════════════════════════════════════════╝
+
+[EVIDENCE] contract_address=0x23f5e49569A835d7bf9AefD30e4f60CdD570f225
+[EVIDENCE] deploy_tx=0x1d1c7a5bae307d6d639ffba4400981ff47139ed1687d76deb637b68489658193
+[EVIDENCE] bytecode_sha256=0x648c085f7595974d1df3ebf3f3718e2abef1ea5a695812ee630d5043e22d003c
+[EVIDENCE] tx_increment=0x0a9be4ef61eaf04d6cf81939d9ac06f5a96e9882662de76592c97aac43b61de0
+[EVIDENCE] tx_setCount=0x9de2fa3421ac18ec93c575a4de3daeb23b41f281443f30063a9aedf1ee595310
+[EVIDENCE] artifact_written=/Users/torfinn/hedera-evm-lab/reports/2026-02-05_12-21-38_timing-data/localnode_restart-contract-evidence.json
+
+
+  6 passing (16s)
+

@@ -1,0 +1,6 @@
+START|localnode_restart_startup|1770323473697
+END|localnode_restart_startup|1770323571566|1770323473697|97869
+START|localnode_restart_benchmark|1770323571649
+END|localnode_restart_benchmark|1770323589514|1770323571649|17865
+START|localnode_restart_shutdown|1770323589624
+END|localnode_restart_shutdown|1770323589841|1770323589624|217

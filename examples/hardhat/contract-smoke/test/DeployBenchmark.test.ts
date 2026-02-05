@@ -1,6 +1,29 @@
 import { expect } from "chai";
 import { ethers, network } from "hardhat";
+import * as fs from "fs";
+import * as path from "path";
 import { Counter } from "../typechain-types";
+
+// ============================================================================
+// CONTRACT EVIDENCE - captures verifiable deployment data
+// ============================================================================
+interface ContractEvidence {
+  label: string;
+  network: string;
+  address: string;
+  bytecode_sha256: string;
+  deploy_tx: string;
+  step_tx_hashes: Record<string, string>;
+}
+
+const contractEvidence: ContractEvidence = {
+  label: process.env.BENCHMARK_LABEL || network.name,
+  network: network.name,
+  address: "",
+  bytecode_sha256: "",
+  deploy_tx: "",
+  step_tx_hashes: {},
+};
 
 // ============================================================================
 // TIMING CONFIGURATION - Adjust based on network characteristics
@@ -106,6 +129,32 @@ describe("Deploy Benchmark", function () {
     const totalValue = `${totalMs}ms`;
     console.log(`${totalLabel.padEnd(42)}${totalValue.padStart(14)} ║`);
     console.log("╚══════════════════════════════════════════════════════════╝\n");
+
+    // Evidence: always print [EVIDENCE] summary lines (parseable, backward compatible)
+    console.log(`[EVIDENCE] contract_address=${contractEvidence.address}`);
+    console.log(`[EVIDENCE] deploy_tx=${contractEvidence.deploy_tx}`);
+    console.log(`[EVIDENCE] bytecode_sha256=${contractEvidence.bytecode_sha256}`);
+    for (const [step, hash] of Object.entries(contractEvidence.step_tx_hashes)) {
+      console.log(`[EVIDENCE] tx_${step}=${hash}`);
+    }
+
+    // Evidence: write JSON artifact if BENCHMARK_EVIDENCE_DIR is set
+    const evidenceDir = process.env.BENCHMARK_EVIDENCE_DIR;
+    if (evidenceDir) {
+      try {
+        if (!fs.existsSync(evidenceDir)) {
+          fs.mkdirSync(evidenceDir, { recursive: true });
+        }
+        const artifactPath = path.join(
+          evidenceDir,
+          `${contractEvidence.label}-contract-evidence.json`
+        );
+        fs.writeFileSync(artifactPath, JSON.stringify(contractEvidence, null, 2));
+        console.log(`[EVIDENCE] artifact_written=${artifactPath}`);
+      } catch (err) {
+        console.log(`[EVIDENCE] artifact_write_error=${err}`);
+      }
+    }
   });
 
   it("Step 1: Deploy Counter contract", async function () {
@@ -124,6 +173,19 @@ describe("Deploy Benchmark", function () {
 
     const address = await counter.getAddress();
     expect(address).to.be.properAddress;
+
+    // Evidence: capture contract address, deploy tx hash, bytecode hash
+    contractEvidence.address = address;
+    const deployTx = counter.deploymentTransaction();
+    if (deployTx) {
+      contractEvidence.deploy_tx = deployTx.hash;
+    }
+    try {
+      const deployedBytecode = await ethers.provider.getCode(address);
+      contractEvidence.bytecode_sha256 = ethers.keccak256(deployedBytecode);
+    } catch {
+      // Non-critical; some networks may not support getCode immediately
+    }
   });
 
   it("Step 2: Write - increment()", async function () {
@@ -133,6 +195,7 @@ describe("Deploy Benchmark", function () {
     await waitForTx(tx);
 
     recordStep("Write (increment)", start);
+    contractEvidence.step_tx_hashes["increment"] = tx.hash;
   });
 
   it("Step 3: Read - count()", async function () {
@@ -166,6 +229,7 @@ describe("Deploy Benchmark", function () {
     await waitForTx(tx);
 
     recordStep("Write (setCount)", start);
+    contractEvidence.step_tx_hashes["setCount"] = tx.hash;
   });
 
   it("Step 6: Final read - verify count() == 42", async function () {

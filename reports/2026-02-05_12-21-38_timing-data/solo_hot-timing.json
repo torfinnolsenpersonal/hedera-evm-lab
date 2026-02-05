@@ -1,0 +1,22 @@
+{
+  "network": "solo_hot",
+  "timestamp": "2026-02-05T20:28:22Z",
+  "total_duration_ms": 95651,
+  "phases": {
+    "solo_hot_startup": {
+      "duration_ms": 53,
+      "start_ms": 1770323206882,
+      "end_ms": 1770323206935
+    },
+    "solo_hot_benchmark": {
+      "duration_ms": 91759,
+      "start_ms": 1770323206965,
+      "end_ms": 1770323298724
+    },
+    "solo_hot_shutdown": {
+      "duration_ms": 3596,
+      "start_ms": 1770323298850,
+      "end_ms": 1770323302446
+    }
+  }
+}

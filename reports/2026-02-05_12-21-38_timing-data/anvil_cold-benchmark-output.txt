@@ -1,0 +1,45 @@
+WARNING: You are currently using Node.js v25.5.0, which is not supported by Hardhat. This can lead to unexpected behavior. See https://v2.hardhat.org/nodejs-versions
+
+
+
+
+  Deploy Benchmark
+
+╔══════════════════════════════════════════════════════════╗
+║         DEPLOY BENCHMARK - anvil                       ║
+╠══════════════════════════════════════════════════════════╣
+║  Default Wait:   0ms                                   ║
+║  Intermediate:   0ms                                   ║
+║  Timeout:        30000ms                               ║
+╚══════════════════════════════════════════════════════════╝
+
+    ✔ Step 1: Deploy Counter contract (49ms)
+    ✔ Step 2: Write - increment()
+    ✔ Step 3: Read - count()
+    ✔ Step 4: Event verification - CountChanged
+    ✔ Step 5: Write - setCount(42)
+    ✔ Step 6: Final read - verify count() == 42
+
+╔══════════════════════════════════════════════════════════╗
+║         DEPLOY BENCHMARK - anvil                       ║
+╠══════════════════════════════════════════════════════════╣
+║  Deploy contract                                  48ms ║
+║  Write (increment)                                 6ms ║
+║  Read (count)                                      2ms ║
+║  Event verification                                9ms ║
+║  Write (setCount)                                  7ms ║
+║  Final read                                        1ms ║
+╠══════════════════════════════════════════════════════════╣
+║  TOTAL                                            73ms ║
+╚══════════════════════════════════════════════════════════╝
+
+[EVIDENCE] contract_address=0x5FbDB2315678afecb367f032d93F642f64180aa3
+[EVIDENCE] deploy_tx=0x014755a0cee24f0b0b4cf24d6d77e4d524e3996117c466695d996172fbb2cda1
+[EVIDENCE] bytecode_sha256=0x648c085f7595974d1df3ebf3f3718e2abef1ea5a695812ee630d5043e22d003c
+[EVIDENCE] tx_increment=0xa748514c11d04afd024966b0176c7aa981e122ea23de91ade99ee1f4e0262eb1
+[EVIDENCE] tx_setCount=0xf9bf8a85f54ba817202ebea0a4c795009de123576c5461a1ec41fa512ce5b89a
+[EVIDENCE] artifact_written=/Users/torfinn/hedera-evm-lab/reports/2026-02-05_12-21-38_timing-data/anvil_cold-contract-evidence.json
+
+
+  6 passing (310ms)
+

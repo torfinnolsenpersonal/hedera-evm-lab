@@ -1,0 +1,45 @@
+WARNING: You are currently using Node.js v25.5.0, which is not supported by Hardhat. This can lead to unexpected behavior. See https://v2.hardhat.org/nodejs-versions
+
+
+
+
+  Deploy Benchmark
+
+╔══════════════════════════════════════════════════════════╗
+║         DEPLOY BENCHMARK - anvil                       ║
+╠══════════════════════════════════════════════════════════╣
+║  Default Wait:   0ms                                   ║
+║  Intermediate:   0ms                                   ║
+║  Timeout:        30000ms                               ║
+╚══════════════════════════════════════════════════════════╝
+
+    ✔ Step 1: Deploy Counter contract (58ms)
+    ✔ Step 2: Write - increment()
+    ✔ Step 3: Read - count()
+    ✔ Step 4: Event verification - CountChanged
+    ✔ Step 5: Write - setCount(42)
+    ✔ Step 6: Final read - verify count() == 42
+
+╔══════════════════════════════════════════════════════════╗
+║         DEPLOY BENCHMARK - anvil                       ║
+╠══════════════════════════════════════════════════════════╣
+║  Deploy contract                                  57ms ║
+║  Write (increment)                                 5ms ║
+║  Read (count)                                      2ms ║
+║  Event verification                                5ms ║
+║  Write (setCount)                                  5ms ║
+║  Final read                                        1ms ║
+╠══════════════════════════════════════════════════════════╣
+║  TOTAL                                            75ms ║
+╚══════════════════════════════════════════════════════════╝
+
+[EVIDENCE] contract_address=0xCf7Ed3AccA5a467e9e704C703E8D87F634fB0Fc9
+[EVIDENCE] deploy_tx=0xaacf57719eb78fc83638ac7498ec6cddbea2bffa749145f532d4884082396724
+[EVIDENCE] bytecode_sha256=0x648c085f7595974d1df3ebf3f3718e2abef1ea5a695812ee630d5043e22d003c
+[EVIDENCE] tx_increment=0x5833ed4e50a9ac4a7b5a108a0e32ababef575735803d1691ecbf0a1f8f1eaf9e
+[EVIDENCE] tx_setCount=0x66a1d495c162a0e219b1ec8ba2d4e5688ad4f67ac61b2dbff5f669a4f7e06289
+[EVIDENCE] artifact_written=/Users/torfinn/hedera-evm-lab/reports/2026-02-05_12-21-38_timing-data/anvil_hot-contract-evidence.json
+
+
+  6 passing (238ms)
+

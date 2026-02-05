@@ -35,10 +35,11 @@ YYYY-MM-DD_HH-MM-SS_[description].md
 ./scripts/run-deploy-benchmark.sh --warm-cluster local    # anvil + localnode + solo
 ./scripts/run-deploy-benchmark.sh --warm-cluster all
 
-# Full lifecycle (install → cold → warm → hot for Solo; cold → restart → docker warm for Local Node)
+# Full lifecycle — all 4 networks with cross-platform comparison
 ./scripts/run-deploy-benchmark.sh --full-lifecycle solo
 ./scripts/run-deploy-benchmark.sh --full-lifecycle localnode
 ./scripts/run-deploy-benchmark.sh --full-lifecycle local    # anvil + localnode + solo
+./scripts/run-deploy-benchmark.sh --full-lifecycle all      # anvil + localnode + solo + hedera_testnet
 ```
 
 ## Report Types
@@ -64,17 +65,55 @@ Single-contract cold-start benchmark timing the full developer journey.
 
 ### Full Lifecycle Benchmark (`_deploy-benchmark.md` with `--full-lifecycle`)
 
-Cross-platform comparison of restart strategies across the complete developer journey.
+Cross-platform comparison of restart strategies across all 4 networks.
 
-- **Test Matrix** — Solo (install, cold, warm, hot) vs Local Node (cold, restart, docker warm)
+- **Evidence & Verification** — git hash, branch, dirty status, run ID, evidence file path
+- **Test Matrix** — Anvil (cold, hot), Solo (install, cold, warm, hot), Local Node (install, cold, restart, docker warm), Hedera Testnet (cold, warm)
 - **Executive Summary** — pass/fail and startup times per scenario
 - **Startup Time Comparison** — side-by-side table across all scenarios
 - **Contract Operations Comparison** — per-step timings across all scenarios
 - **Per-Scenario Details** — individual breakdown for each run
-- **Architecture Analysis** — commentary on how Kubernetes (3-layer) vs Docker Compose (2-layer) affects restart strategies
+- **Setup Requirements** — prerequisites and measured install times per network
+- **Developer Loop Comparison** — fastest retest path for each network
+- **CI Recommendations** — which network/scenario for which CI use case
+- **Architecture Analysis** — commentary on how each network's architecture affects restart strategies
 
 All report types store timing data in an accompanying `_timing-data/` directory with
-JSON exports and raw timing entries.
+JSON exports, raw timing entries, and evidence manifests.
+
+## Evidence & Audit Trail
+
+Every benchmark run produces a verifiable evidence manifest in the `_timing-data/` directory:
+
+```
+reports/YYYY-MM-DD_HH-MM-SS_timing-data/
+├── YYYY-MM-DD_HH-MM-SS_evidence.json    # Evidence manifest
+├── solo_cold-contract-evidence.json       # Per-scenario contract evidence
+├── solo_cold-timing.json                  # Timing data (JSON)
+├── solo_cold-timing-data.txt              # Raw timing entries
+└── solo_cold-benchmark-output.txt         # Full test output
+```
+
+The evidence manifest (`_evidence.json`) contains:
+- **Git state** — commit hash, branch, dirty flag
+- **Environment** — full `doctor.sh --json` output (OS, tool versions, resource checks)
+- **Steps** — each benchmark step with command, exit code, and output file SHA256
+- **Contracts** — deployed contract address, bytecode SHA256, deploy tx hash, step tx hashes
+
+### Verification commands
+
+```bash
+# Validate evidence JSON
+python3 -m json.tool reports/YYYY-MM-DD_*_timing-data/*_evidence.json
+
+# Check doctor.sh --json output
+./scripts/doctor.sh --json | python3 -m json.tool
+
+# Run hardhat test with evidence collection
+BENCHMARK_EVIDENCE_DIR=/tmp BENCHMARK_LABEL=test \
+  npx hardhat test test/DeployBenchmark.test.ts --network hardhat
+# Produces /tmp/test-contract-evidence.json + [EVIDENCE] console lines
+```
 
 ## Historical Reports
 

@@ -1,0 +1,54 @@
+{
+  "run_id": "2026-02-05_12-21-38",
+  "git": {
+    "commit": "ec40c24",
+    "branch": "main",
+    "dirty": true
+  },
+  "environment": {
+  "timestamp": "2026-02-05T20:21:42Z",
+  "os": "Darwin",
+  "os_version": "24.6.0",
+  "arch": "arm64",
+  "checks": [
+    {"category": "Core Requirements", "name": "Git", "status": "ok", "version": "git version 2.52.0"},
+    {"category": "Core Requirements", "name": "Node.js", "status": "ok", "version": "25.5.0"},
+    {"category": "Core Requirements", "name": "NPM", "status": "ok", "version": "11.8.0"},
+    {"category": "Core Requirements", "name": "Docker", "status": "ok", "version": "27.3.1"},
+    {"category": "Core Requirements", "name": "Docker Compose", "status": "ok", "version": "5.0.1"},
+    {"category": "Docker Resources", "name": "Docker memory", "status": "warn", "version": "11.67GiB"},
+    {"category": "Docker Resources", "name": "Docker CPUs", "status": "ok", "version": "8"},
+    {"category": "Solo-Specific Requirements (Kubernetes)", "name": "kubectl", "status": "ok", "version": "v1.34.1"},
+    {"category": "Solo-Specific Requirements (Kubernetes)", "name": "kind", "status": "ok", "version": "v0.31.0"},
+    {"category": "Solo-Specific Requirements (Kubernetes)", "name": "Helm", "status": "ok", "version": "v3.18.4"},
+    {"category": "Optional Tools", "name": "curl", "status": "ok", "version": "curl 8.7.1 (x86_64-apple-darwin24.0) libcurl/8.7.1 (SecureTransport) LibreSSL/3.3.6 zlib/1.2.12 nghttp2/1.64.0"},
+    {"category": "Optional Tools", "name": "jq", "status": "ok", "version": "jq-1.7.1"},
+    {"category": "Optional Tools", "name": "Homebrew", "status": "ok", "version": "Homebrew 5.0.13"},
+    {"category": "Homebrew Tap (for Solo via brew)", "name": "Homebrew tap hiero-ledger/tools", "status": "ok"},
+    {"category": "Installed Hedera Tools", "name": "hedera-local CLI", "status": "ok"},
+    {"category": "Installed Hedera Tools", "name": "Solo CLI", "status": "ok"},
+    {"category": "Port Availability", "name": "Port 7546", "status": "in_use", "version": "kubectl"},
+    {"category": "Port Availability", "name": "Port 5551", "status": "ok"},
+    {"category": "Port Availability", "name": "Port 5600", "status": "ok"}
+  ],
+  "issues_found": 0
+},
+  "steps": [
+    {"name": "anvil_cold_benchmark", "command": "hardhat test --network anvil", "exit_code": 0, "output_sha256": "9b5eb16e300f71a482fd46cb9021d4fadf0a6cb6bd25527843a19cc34df90991"},
+    {"name": "anvil_hot_benchmark", "command": "hardhat test --network anvil", "exit_code": 0, "output_sha256": "65d27630439496c5b1a4a797886ce1c8cce745fbe3190b83529fe7ec1d3d9d1a"},
+    {"name": "solo_cold_benchmark", "command": "hardhat test --network solo", "exit_code": 6, "output_sha256": "06fc96a847c0565c480272acd34e81d6cc8b29c809c9798fe440cf44f9035810"},
+    {"name": "solo_warm_benchmark", "command": "hardhat test --network solo", "exit_code": 6, "output_sha256": "cdb30192053c089b390def48737d58eeea0a60ee62643f7d3b44a05632b637ea"},
+    {"name": "solo_hot_benchmark", "command": "hardhat test --network solo", "exit_code": 6, "output_sha256": "87ff974cc2bc60a542c1b74def55a704b3b467f88050189633cb0935f24e0a66"},
+    {"name": "localnode_cold_benchmark", "command": "hardhat test --network localnode", "exit_code": 0, "output_sha256": "b38cfeb34f092992ee2304f49b1ae9e393661dccf94a8c7e5df252abe6cf052a"},
+    {"name": "localnode_restart_benchmark", "command": "hardhat test --network localnode", "exit_code": 0, "output_sha256": "f0b4c50f6a962a3f2d5ef30c383dddd43dfb607a6f2aaa4deb6ba51b687b713a"}
+  ],
+  "contracts": [
+    {"label": "anvil_cold", "address": "0x5FbDB2315678afecb367f032d93F642f64180aa3", "bytecode_sha256": "0x648c085f7595974d1df3ebf3f3718e2abef1ea5a695812ee630d5043e22d003c", "deploy_tx": "0x014755a0cee24f0b0b4cf24d6d77e4d524e3996117c466695d996172fbb2cda1"},
+    {"label": "anvil_hot", "address": "0xCf7Ed3AccA5a467e9e704C703E8D87F634fB0Fc9", "bytecode_sha256": "0x648c085f7595974d1df3ebf3f3718e2abef1ea5a695812ee630d5043e22d003c", "deploy_tx": "0xaacf57719eb78fc83638ac7498ec6cddbea2bffa749145f532d4884082396724"},
+    {"label": "solo_cold"},
+    {"label": "solo_warm"},
+    {"label": "solo_hot"},
+    {"label": "localnode_cold", "address": "0x23f5e49569A835d7bf9AefD30e4f60CdD570f225", "bytecode_sha256": "0x648c085f7595974d1df3ebf3f3718e2abef1ea5a695812ee630d5043e22d003c", "deploy_tx": "0x1d1c7a5bae307d6d639ffba4400981ff47139ed1687d76deb637b68489658193"},
+    {"label": "localnode_restart", "address": "0x23f5e49569A835d7bf9AefD30e4f60CdD570f225", "bytecode_sha256": "0x648c085f7595974d1df3ebf3f3718e2abef1ea5a695812ee630d5043e22d003c", "deploy_tx": "0x1d1c7a5bae307d6d639ffba4400981ff47139ed1687d76deb637b68489658193"}
+  ]
+}
