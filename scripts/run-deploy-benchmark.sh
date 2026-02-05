@@ -1,11 +1,13 @@
 #!/usr/bin/env bash
 # Run the Deploy Benchmark across one or more networks
-# Usage: ./scripts/run-deploy-benchmark.sh [--clean|--warm|--warm-cluster] [anvil|localnode|solo|hedera_testnet|local|all]
+# Usage: ./scripts/run-deploy-benchmark.sh [--clean|--warm|--warm-cluster|--full-lifecycle] [anvil|localnode|solo|hedera_testnet|local|all]
 #
 # Flags:
-#   --clean         (default) Full developer journey: clean node_modules/artifacts, npm install, compile, then benchmark
-#   --warm          Skip install/compile steps; only run network startup + contract benchmark
-#   --warm-cluster  Like --warm, but also preserves the kind cluster between runs (Solo only)
+#   --clean           (default) Full developer journey: clean node_modules/artifacts, npm install, compile, then benchmark
+#   --warm            Skip install/compile steps; only run network startup + contract benchmark
+#   --warm-cluster    Like --warm, but also preserves the kind cluster between runs (Solo only)
+#   --full-lifecycle  Benchmark the complete developer journey: install → cold start → warm restart → hot restart
+#                     Solo: install, cold, warm, hot  |  Local Node: cold, restart, docker_warm
 #
 # Modes:
 #   anvil          - Benchmark against Anvil (local Ethereum)
@@ -37,6 +39,7 @@ NC='\033[0m'
 # Parse flags
 CLEAN_MODE=true
 WARM_CLUSTER=false
+FULL_LIFECYCLE=false
 MODE=""
 
 while [[ $# -gt 0 ]]; do
@@ -44,16 +47,25 @@ while [[ $# -gt 0 ]]; do
         --clean)
             CLEAN_MODE=true
             WARM_CLUSTER=false
+            FULL_LIFECYCLE=false
             shift
             ;;
         --warm)
             CLEAN_MODE=false
             WARM_CLUSTER=false
+            FULL_LIFECYCLE=false
             shift
             ;;
         --warm-cluster)
             CLEAN_MODE=false
             WARM_CLUSTER=true
+            FULL_LIFECYCLE=false
+            shift
+            ;;
+        --full-lifecycle)
+            CLEAN_MODE=false
+            WARM_CLUSTER=false
+            FULL_LIFECYCLE=true
             shift
             ;;
         *)
@@ -85,7 +97,9 @@ echo -e "${CYAN}============================================${NC}"
 echo -e "${CYAN}   Deploy Benchmark — Developer Journey${NC}"
 echo -e "${CYAN}============================================${NC}"
 echo "Mode: ${MODE}"
-if $WARM_CLUSTER; then
+if $FULL_LIFECYCLE; then
+    echo "Run type: FULL LIFECYCLE (install → cold → warm → hot)"
+elif $WARM_CLUSTER; then
     echo "Run type: WARM CLUSTER (cluster persists, deploy + contract ops only)"
 elif $CLEAN_MODE; then
     echo "Run type: CLEAN (full developer journey)"
@@ -117,37 +131,52 @@ echo "Networks: ${NETWORKS[*]}"
 echo ""
 
 # Resolve actual network name from a run label
-# e.g., "solo_1st" → "solo", "anvil_1st" → "anvil", "anvil" → "anvil"
+# e.g., "solo_1st" → "solo", "solo_cold" → "solo", "localnode_restart" → "localnode"
 net_name() {
     case "$1" in
         *_1st) echo "${1%_1st}" ;;
         *_2nd) echo "${1%_2nd}" ;;
+        *_install) echo "${1%_install}" ;;
+        *_cold) echo "${1%_cold}" ;;
+        *_warm) echo "${1%_warm}" ;;
+        *_hot) echo "${1%_hot}" ;;
+        *_restart) echo "${1%_restart}" ;;
+        *_docker_warm) echo "${1%_docker_warm}" ;;
         *) echo "$1" ;;
     esac
 }
 
 # Display-friendly label for reports
-# e.g., "solo_1st" → "solo (1st start)", "anvil" → "anvil"
+# e.g., "solo_1st" → "solo (1st start)", "solo_cold" → "solo (cold start)"
 display_name() {
     case "$1" in
         *_1st) echo "${1%_1st} (1st start)" ;;
         *_2nd) echo "${1%_2nd} (2nd start)" ;;
+        *_install) echo "${1%_install} (install)" ;;
+        *_cold) echo "${1%_cold} (cold start)" ;;
+        *_warm) echo "${1%_warm} (warm restart)" ;;
+        *_hot) echo "${1%_hot} (hot restart)" ;;
+        *_restart) echo "${1%_restart} (CLI restart)" ;;
+        *_docker_warm) echo "${1%_docker_warm} (docker warm)" ;;
         *) echo "$1" ;;
     esac
 }
 
 # Build run list — expand each network into two runs for --warm-cluster
+# In --full-lifecycle mode, RUN_LIST is built dynamically by lifecycle orchestrators
 RUN_LIST=()
-for net in "${NETWORKS[@]}"; do
-    if $WARM_CLUSTER; then
-        RUN_LIST+=("${net}_1st" "${net}_2nd")
-    else
-        RUN_LIST+=("$net")
-    fi
-done
+if ! $FULL_LIFECYCLE; then
+    for net in "${NETWORKS[@]}"; do
+        if $WARM_CLUSTER; then
+            RUN_LIST+=("${net}_1st" "${net}_2nd")
+        else
+            RUN_LIST+=("$net")
+        fi
+    done
+fi
 
-# In warm mode, ensure hardhat project is ready once up front
-if ! $CLEAN_MODE; then
+# In warm/lifecycle mode, ensure hardhat project is ready once up front
+if ! $CLEAN_MODE || $FULL_LIFECYCLE; then
     cd "$HARDHAT_DIR"
     if [ ! -d "node_modules" ]; then
         echo "Installing dependencies (warm mode, node_modules missing)..."
@@ -203,15 +232,24 @@ start_network() {
 
 stop_network() {
     local net="$1"
+    local mode="${2:-auto}"  # auto | keep-cluster | docker-stop | full | none
+    if [ "$mode" = "none" ]; then
+        echo -e "${YELLOW}Skipping shutdown (stop_mode=none)${NC}"
+        return 0
+    fi
     case "$net" in
         anvil)
             "${SCRIPT_DIR}/stop-anvil.sh" || true
             ;;
         localnode)
-            "${SCRIPT_DIR}/stop-local-node.sh" || true
+            if [ "$mode" = "docker-stop" ]; then
+                "${SCRIPT_DIR}/stop-local-node.sh" --docker-stop || true
+            else
+                "${SCRIPT_DIR}/stop-local-node.sh" || true
+            fi
             ;;
         solo)
-            if $WARM_CLUSTER; then
+            if [ "$mode" = "keep-cluster" ] || { [ "$mode" = "auto" ] && $WARM_CLUSTER; }; then
                 "${SCRIPT_DIR}/stop-solo.sh" --keep-cluster || true
             else
                 "${SCRIPT_DIR}/stop-solo.sh" || true
@@ -223,12 +261,80 @@ stop_network() {
     esac
 }
 
+# Verify RPC endpoint is healthy (used for hot restart where network is already running)
+# Arguments:
+#   $1 - RPC URL (default: http://127.0.0.1:7546)
+#   $2 - Max attempts (default: 30)
+#   $3 - Sleep interval in seconds (default: 2)
+# Returns: 0 on success, 1 on timeout
+verify_rpc_health() {
+    local rpc_url="${1:-http://127.0.0.1:7546}"
+    local max_attempts="${2:-30}"
+    local interval="${3:-2}"
+    local attempt=0
+
+    echo "Verifying RPC health at ${rpc_url}..."
+    while [ $attempt -lt $max_attempts ]; do
+        if curl -s "$rpc_url" -X POST -H "Content-Type: application/json" \
+            -d '{"jsonrpc":"2.0","method":"eth_chainId","params":[],"id":1}' 2>/dev/null | grep -q '"result"'; then
+            echo -e "${GREEN}RPC endpoint is healthy${NC}"
+            return 0
+        fi
+        attempt=$((attempt + 1))
+        echo "Waiting for RPC... (attempt ${attempt}/${max_attempts})"
+        sleep "$interval"
+    done
+    echo -e "${RED}RPC health check timed out after ${max_attempts} attempts${NC}"
+    return 1
+}
+
+# Start Local Node containers using raw docker compose start (for docker_warm scenario)
+# Discovers the compose directory and runs docker compose start + health check
+# Returns: 0 on success, 1 on failure
+start_localnode_docker_only() {
+    local rpc_port="${RPC_PORT:-7546}"
+
+    echo -e "${CYAN}Starting Local Node via docker compose start...${NC}"
+
+    # Discover the docker-compose working directory
+    local compose_dir=""
+    local hedera_workdir="$HOME/Library/Application Support/hedera-local"
+    if [ -f "${hedera_workdir}/docker-compose.yml" ] || [ -f "${hedera_workdir}/compose.yaml" ]; then
+        compose_dir="$hedera_workdir"
+    elif [ -d "${PROJECT_ROOT}/repos/hiero-local-node" ]; then
+        compose_dir="${PROJECT_ROOT}/repos/hiero-local-node"
+    fi
+
+    if [ -z "$compose_dir" ]; then
+        echo -e "${RED}Error: Could not find Local Node docker-compose directory${NC}"
+        return 1
+    fi
+
+    echo "Using compose dir: ${compose_dir}"
+    cd "$compose_dir"
+    docker compose start 2>/dev/null || {
+        echo -e "${RED}docker compose start failed${NC}"
+        return 1
+    }
+
+    # Wait for health
+    sleep 5
+    if verify_rpc_health "http://127.0.0.1:${rpc_port}" 30 2; then
+        echo -e "${GREEN}Local Node containers restarted successfully${NC}"
+        return 0
+    else
+        echo -e "${RED}Local Node did not become healthy after docker compose start${NC}"
+        return 1
+    fi
+}
+
 # ============================================================================
 # Run benchmark for a single network
 # ============================================================================
 
 run_benchmark() {
     local label="$1"
+    local stop_mode="${2:-auto}"  # auto | keep-cluster | docker-stop | full | none
     local net
     net=$(net_name "$label")
     local output_file="${TEMP_DIR}/benchmark_${label}.txt"
@@ -317,11 +423,13 @@ run_benchmark() {
     fi
 
     # Stage 6: Network shutdown
-    if [ "$net" != "hedera_testnet" ]; then
+    if [ "$net" != "hedera_testnet" ] && [ "$stop_mode" != "none" ]; then
         echo -e "${YELLOW}Stage 6: Network shutdown${NC}"
         timing_start "${label}_shutdown"
-        stop_network "$net"
+        stop_network "$net" "$stop_mode"
         timing_end "${label}_shutdown"
+    elif [ "$stop_mode" = "none" ]; then
+        echo -e "${YELLOW}Stage 6: Skipping shutdown (managed by lifecycle orchestrator)${NC}"
     fi
 
     echo ""
@@ -358,6 +466,592 @@ parse_benchmark_output() {
     else
         echo "N/A"
     fi
+}
+
+# ============================================================================
+# Full Lifecycle: benchmark variant with custom startup/shutdown
+# ============================================================================
+
+# Run a benchmark scenario with a custom startup function and stop mode.
+# Unlike run_benchmark(), startup is handled by the caller (lifecycle orchestrator).
+# Arguments:
+#   $1 - label (e.g., "solo_cold")
+#   $2 - startup_fn: function name to call for startup (or "none" to skip)
+#   $3 - stop_mode: how to shut down after benchmark (auto|keep-cluster|docker-stop|full|none)
+run_benchmark_lifecycle() {
+    local label="$1"
+    local startup_fn="${2:-none}"
+    local stop_mode="${3:-none}"
+    local net
+    net=$(net_name "$label")
+    local output_file="${TEMP_DIR}/benchmark_${label}.txt"
+
+    echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo -e "${CYAN}  Benchmarking: $(display_name "$label")${NC}"
+    echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo ""
+
+    timing_init "$label"
+
+    # Startup (managed by lifecycle orchestrator)
+    if [ "$startup_fn" != "none" ]; then
+        echo -e "${YELLOW}Startup: ${startup_fn}${NC}"
+        timing_start "${label}_startup"
+        if ! eval "$startup_fn"; then
+            echo -e "${RED}Startup failed for ${label}${NC}"
+            timing_end "${label}_startup"
+            kv_set NET_STATUS "$label" "FAIL"
+            kv_set NET_PASSED "$label" "0"
+            kv_set NET_FAILED "$label" "0"
+            kv_set NET_TOTAL "$label" "0"
+            return 1
+        fi
+        timing_end "${label}_startup"
+    fi
+
+    # Contract benchmark
+    timing_start "${label}_benchmark"
+    echo ""
+    echo -e "${YELLOW}Contract benchmark${NC}"
+    echo -e "${CYAN}Running benchmark tests against ${net}...${NC}"
+    echo ""
+
+    cd "$HARDHAT_DIR"
+    if npx hardhat test test/DeployBenchmark.test.ts --network "$net" 2>&1 | tee "$output_file"; then
+        echo ""
+        echo -e "${GREEN}Benchmark PASSED for $(display_name "$label")${NC}"
+    else
+        echo ""
+        echo -e "${RED}Benchmark FAILED for $(display_name "$label")${NC}"
+    fi
+    timing_end "${label}_benchmark"
+
+    # Parse pass/fail from test output
+    local passing failing total
+    passing=$(grep -oE '[0-9]+ passing' "$output_file" 2>/dev/null | head -1 | grep -oE '[0-9]+' || echo "0")
+    failing=$(grep -oE '[0-9]+ failing' "$output_file" 2>/dev/null | head -1 | grep -oE '[0-9]+' || echo "0")
+    total=$((passing + failing))
+    kv_set NET_PASSED "$label" "$passing"
+    kv_set NET_FAILED "$label" "$failing"
+    kv_set NET_TOTAL "$label" "$total"
+    if [ "$failing" -eq 0 ] && [ "$passing" -gt 0 ]; then
+        kv_set NET_STATUS "$label" "PASS"
+    elif [ "$passing" -gt 0 ]; then
+        kv_set NET_STATUS "$label" "PARTIAL"
+    else
+        kv_set NET_STATUS "$label" "FAIL"
+    fi
+
+    # Shutdown (managed by lifecycle orchestrator)
+    if [ "$stop_mode" != "none" ]; then
+        echo -e "${YELLOW}Shutdown: stop_mode=${stop_mode}${NC}"
+        timing_start "${label}_shutdown"
+        stop_network "$net" "$stop_mode"
+        timing_end "${label}_shutdown"
+    else
+        echo -e "${YELLOW}Skipping shutdown (managed by lifecycle orchestrator)${NC}"
+    fi
+
+    echo ""
+    timing_summary
+
+    # Export timing data
+    timing_export_json "${TIMING_DATA_DIR}/${label}-timing.json"
+    if [ -f "$TIMING_DATA_FILE" ]; then
+        cp "$TIMING_DATA_FILE" "${TIMING_DATA_DIR}/${label}-timing-data.txt"
+    fi
+    if [ -f "$output_file" ]; then
+        cp "$output_file" "${TIMING_DATA_DIR}/${label}-benchmark-output.txt"
+    fi
+}
+
+# ============================================================================
+# Full Lifecycle: Solo (4 scenarios)
+# ============================================================================
+
+run_solo_lifecycle() {
+    echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo -e "${CYAN}  Solo Full Lifecycle (install → cold → warm → hot)${NC}"
+    echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo ""
+
+    # ── Step 1: solo_install — brew reinstall solo timing ──
+    echo -e "${CYAN}[1/4] solo_install: brew reinstall solo${NC}"
+    local install_label="solo_install"
+    RUN_LIST+=("$install_label")
+    timing_init "$install_label"
+    timing_start "${install_label}_startup"
+
+    if command -v brew &>/dev/null; then
+        # Run brew reinstall (use gtimeout if available, else run without timeout)
+        local timeout_cmd=""
+        if command -v gtimeout &>/dev/null; then
+            timeout_cmd="gtimeout 600"
+        elif command -v timeout &>/dev/null; then
+            timeout_cmd="timeout 600"
+        fi
+        if $timeout_cmd brew reinstall solo 2>&1; then
+            echo -e "${GREEN}solo reinstalled successfully${NC}"
+            kv_set NET_STATUS "$install_label" "PASS"
+        else
+            echo -e "${RED}brew reinstall solo failed or timed out${NC}"
+            kv_set NET_STATUS "$install_label" "FAIL"
+        fi
+    else
+        echo -e "${YELLOW}brew not found, skipping install timing${NC}"
+        kv_set NET_STATUS "$install_label" "SKIP"
+    fi
+
+    timing_end "${install_label}_startup"
+    kv_set NET_PASSED "$install_label" "0"
+    kv_set NET_FAILED "$install_label" "0"
+    kv_set NET_TOTAL "$install_label" "0"
+
+    timing_summary
+    timing_export_json "${TIMING_DATA_DIR}/${install_label}-timing.json"
+    if [ -f "$TIMING_DATA_FILE" ]; then
+        cp "$TIMING_DATA_FILE" "${TIMING_DATA_DIR}/${install_label}-timing-data.txt"
+    fi
+    echo ""
+
+    # ── Step 2: solo_cold — full cold start (kind create + solo deploy + benchmark) ──
+    echo -e "${CYAN}[2/4] solo_cold: full cold start${NC}"
+    local cold_label="solo_cold"
+    RUN_LIST+=("$cold_label")
+    run_benchmark_lifecycle "$cold_label" "start_network solo" "keep-cluster" || true
+    echo ""
+
+    # ── Step 3: solo_warm — redeploy on existing cluster ──
+    echo -e "${CYAN}[3/4] solo_warm: redeploy on existing cluster${NC}"
+    local warm_label="solo_warm"
+    RUN_LIST+=("$warm_label")
+    run_benchmark_lifecycle "$warm_label" "start_network solo" "none" || true
+    echo ""
+
+    # ── Step 4: solo_hot — network already running, health check only ──
+    echo -e "${CYAN}[4/4] solo_hot: network already running (health check + benchmark)${NC}"
+    local hot_label="solo_hot"
+    RUN_LIST+=("$hot_label")
+    # For hot restart, just verify health — network is already running from warm step
+    _solo_hot_startup() {
+        echo -e "${CYAN}Verifying Solo network is still running...${NC}"
+        verify_rpc_health "http://127.0.0.1:${RPC_PORT:-7546}" 30 5
+    }
+    run_benchmark_lifecycle "$hot_label" "_solo_hot_startup" "full" || true
+    echo ""
+}
+
+# ============================================================================
+# Full Lifecycle: Local Node (3 scenarios)
+# ============================================================================
+
+run_localnode_lifecycle() {
+    echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo -e "${CYAN}  Local Node Full Lifecycle (cold → restart → docker_warm)${NC}"
+    echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo ""
+
+    # ── Step 1: localnode_cold — full cold start ──
+    echo -e "${CYAN}[1/3] localnode_cold: full cold start${NC}"
+    local cold_label="localnode_cold"
+    RUN_LIST+=("$cold_label")
+    run_benchmark_lifecycle "$cold_label" "start_network localnode" "full" || true
+    echo ""
+
+    # ── Step 2: localnode_restart — CLI restart (hedera start after full stop) ──
+    echo -e "${CYAN}[2/3] localnode_restart: CLI restart${NC}"
+    local restart_label="localnode_restart"
+    RUN_LIST+=("$restart_label")
+    run_benchmark_lifecycle "$restart_label" "start_network localnode" "docker-stop" || true
+    echo ""
+
+    # ── Step 3: localnode_docker_warm — docker compose start (containers stopped, volumes preserved) ──
+    echo -e "${CYAN}[3/3] localnode_docker_warm: docker compose start (experimental)${NC}"
+    local docker_warm_label="localnode_docker_warm"
+    RUN_LIST+=("$docker_warm_label")
+    run_benchmark_lifecycle "$docker_warm_label" "start_localnode_docker_only" "full" || true
+    echo ""
+}
+
+# ============================================================================
+# Full Lifecycle: top-level dispatcher
+# ============================================================================
+
+run_full_lifecycle() {
+    echo -e "${CYAN}============================================${NC}"
+    echo -e "${CYAN}   Full Lifecycle Benchmark${NC}"
+    echo -e "${CYAN}============================================${NC}"
+    echo ""
+
+    local has_solo=false
+    local has_localnode=false
+    local has_anvil=false
+
+    for net in "${NETWORKS[@]}"; do
+        case "$net" in
+            solo) has_solo=true ;;
+            localnode) has_localnode=true ;;
+            anvil) has_anvil=true ;;
+        esac
+    done
+
+    # Anvil: just run a single warm benchmark (no lifecycle variations)
+    if $has_anvil; then
+        echo -e "${CYAN}━━━ Anvil (baseline) ━━━${NC}"
+        RUN_LIST+=("anvil")
+        run_benchmark "anvil" "auto" || true
+        echo ""
+    fi
+
+    # Solo lifecycle
+    if $has_solo; then
+        run_solo_lifecycle
+    fi
+
+    # Local Node lifecycle
+    if $has_localnode; then
+        run_localnode_lifecycle
+    fi
+
+    # Generate the unified lifecycle report
+    generate_lifecycle_report
+}
+
+# ============================================================================
+# Generate lifecycle comparison report
+# ============================================================================
+
+generate_lifecycle_report() {
+    local report_file="${REPORTS_DIR}/${TIMESTAMP}_deploy-benchmark.md"
+
+    echo -e "${CYAN}Generating full lifecycle benchmark report...${NC}"
+
+    # Helper to read timing for a specific run label
+    timing_for() {
+        local lbl="$1"
+        local phase="$2"
+        TIMING_DATA_FILE="${TIMING_OUTPUT_DIR}/${lbl}-timing-data.txt"
+        timing_get_duration_formatted "${lbl}_${phase}" 2>/dev/null || echo "N/A"
+    }
+
+    # Helper to read timing in ms for a specific run label
+    timing_for_ms() {
+        local lbl="$1"
+        local phase="$2"
+        TIMING_DATA_FILE="${TIMING_OUTPUT_DIR}/${lbl}-timing-data.txt"
+        timing_get_duration_ms "${lbl}_${phase}" 2>/dev/null || echo ""
+    }
+
+    {
+        # ── Header ──
+        echo "# Hedera EVM Lab - Full Lifecycle Benchmark Report"
+        echo ""
+        echo "**Generated**: $(date '+%Y-%m-%d %H:%M:%S %Z')"
+        echo "**Report ID**: ${TIMESTAMP}"
+        echo "**Test Mode**: full-lifecycle"
+        echo "**Networks**: ${NETWORKS[*]}"
+        echo "**Run Type**: Full Lifecycle (install → cold start → warm restart → hot restart)"
+        echo ""
+        echo "---"
+        echo ""
+
+        # ── Test Matrix ──
+        echo "## Test Matrix"
+        echo ""
+        echo "### Solo (Kubernetes/kind — 3-layer architecture)"
+        echo ""
+        echo "| Run | What It Tests | Result |"
+        echo "|-----|---------------|--------|"
+        for label in "${RUN_LIST[@]}"; do
+            local net
+            net=$(net_name "$label")
+            if [ "$net" = "solo" ]; then
+                local status
+                status=$(kv_get NET_STATUS "$label" "SKIP")
+                local desc=""
+                case "$label" in
+                    solo_install) desc="CLI install timing (brew reinstall)" ;;
+                    solo_cold) desc="Full cold start (kind create + deploy)" ;;
+                    solo_warm) desc="Warm restart (redeploy on existing cluster)" ;;
+                    solo_hot) desc="Hot restart (health check only)" ;;
+                esac
+                echo "| $(display_name "$label") | ${desc} | ${status} |"
+            fi
+        done
+        echo ""
+        echo "### Local Node (Docker Compose — 2-layer architecture)"
+        echo ""
+        echo "| Run | What It Tests | Result |"
+        echo "|-----|---------------|--------|"
+        for label in "${RUN_LIST[@]}"; do
+            local net
+            net=$(net_name "$label")
+            if [ "$net" = "localnode" ]; then
+                local status
+                status=$(kv_get NET_STATUS "$label" "SKIP")
+                local desc=""
+                case "$label" in
+                    localnode_cold) desc="Full cold start (hedera start)" ;;
+                    localnode_restart) desc="CLI restart (hedera start after full stop)" ;;
+                    localnode_docker_warm) desc="Docker warm (docker compose start, experimental)" ;;
+                esac
+                echo "| $(display_name "$label") | ${desc} | ${status} |"
+            fi
+        done
+        echo ""
+        echo "---"
+        echo ""
+
+        # ── Executive Summary ──
+        echo "## Executive Summary"
+        echo ""
+        echo "| Scenario | Startup | Passed | Failed | Status |"
+        echo "|----------|---------|--------|--------|--------|"
+        for label in "${RUN_LIST[@]}"; do
+            local passed failed status startup_val
+            passed=$(kv_get NET_PASSED "$label" "0")
+            failed=$(kv_get NET_FAILED "$label" "0")
+            status=$(kv_get NET_STATUS "$label" "SKIP")
+            startup_val=$(timing_for "$label" "startup")
+            echo "| $(display_name "$label") | ${startup_val} | ${passed} | ${failed} | ${status} |"
+        done
+        echo ""
+        echo "---"
+        echo ""
+
+        # ── Startup Time Comparison ──
+        echo "## Startup Time Comparison"
+        echo ""
+
+        # Collect Solo labels and Local Node labels
+        local solo_labels=()
+        local localnode_labels=()
+        local anvil_labels=()
+        for label in "${RUN_LIST[@]}"; do
+            local net
+            net=$(net_name "$label")
+            case "$net" in
+                solo) solo_labels+=("$label") ;;
+                localnode) localnode_labels+=("$label") ;;
+                anvil) anvil_labels+=("$label") ;;
+            esac
+        done
+
+        # Build side-by-side table
+        local header="| Scenario |"
+        local separator="|----------|"
+        for label in "${RUN_LIST[@]}"; do
+            header="${header} $(display_name "$label") |"
+            separator="${separator}------|"
+        done
+        echo "$header"
+        echo "$separator"
+
+        # Startup row
+        local row="| Network startup |"
+        for label in "${RUN_LIST[@]}"; do
+            local value
+            value=$(timing_for "$label" "startup")
+            row="${row} ${value} |"
+        done
+        echo "$row"
+
+        # Benchmark row
+        row="| Benchmark run |"
+        for label in "${RUN_LIST[@]}"; do
+            local value
+            value=$(timing_for "$label" "benchmark")
+            row="${row} ${value} |"
+        done
+        echo "$row"
+
+        # Shutdown row
+        row="| Shutdown |"
+        for label in "${RUN_LIST[@]}"; do
+            local value
+            value=$(timing_for "$label" "shutdown")
+            if [ "$value" = "N/A" ]; then
+                row="${row} — |"
+            else
+                row="${row} ${value} |"
+            fi
+        done
+        echo "$row"
+
+        echo ""
+        echo "---"
+        echo ""
+
+        # ── Contract Operations Comparison ──
+        echo "## Contract Operations Comparison"
+        echo ""
+
+        local header="| Step |"
+        local separator="|------|"
+        for label in "${RUN_LIST[@]}"; do
+            # Skip install-only labels (no contract ops)
+            case "$label" in *_install) continue ;; esac
+            header="${header} $(display_name "$label") |"
+            separator="${separator}------|"
+        done
+        echo "$header"
+        echo "$separator"
+
+        local steps=("Deploy contract" "Write (increment)" "Read (count)" "Event verification" "Write (setCount)" "Final read")
+        for step in "${steps[@]}"; do
+            local row="| ${step} |"
+            for label in "${RUN_LIST[@]}"; do
+                case "$label" in *_install) continue ;; esac
+                local output_file="${TEMP_DIR}/benchmark_${label}.txt"
+                local value
+                value=$(parse_benchmark_output "$output_file" "$step")
+                row="${row} ${value} |"
+            done
+            echo "$row"
+        done
+
+        # Total row
+        local row="| **TOTAL** |"
+        for label in "${RUN_LIST[@]}"; do
+            case "$label" in *_install) continue ;; esac
+            local output_file="${TEMP_DIR}/benchmark_${label}.txt"
+            local value
+            value=$(parse_benchmark_output "$output_file" "TOTAL")
+            row="${row} **${value}** |"
+        done
+        echo "$row"
+
+        echo ""
+        echo "---"
+        echo ""
+
+        # ── Per-Scenario Details ──
+        echo "## Per-Scenario Details"
+        echo ""
+
+        for label in "${RUN_LIST[@]}"; do
+            local net
+            net=$(net_name "$label")
+            echo "### $(display_name "$label")"
+            echo ""
+            local passed failed status
+            passed=$(kv_get NET_PASSED "$label" "0")
+            failed=$(kv_get NET_FAILED "$label" "0")
+            status=$(kv_get NET_STATUS "$label" "SKIP")
+            echo "**Status**: ${status}"
+
+            # Install-only scenario
+            case "$label" in
+                *_install)
+                    local startup_val
+                    startup_val=$(timing_for "$label" "startup")
+                    echo "**Install time**: ${startup_val}"
+                    echo ""
+                    echo "---"
+                    echo ""
+                    continue
+                    ;;
+            esac
+
+            echo "**Tests**: ${passed} passed, ${failed} failed"
+            echo ""
+
+            # Orchestrator timing
+            echo "| Phase | Duration |"
+            echo "|-------|----------|"
+            local startup_val benchmark_val shutdown_val
+            startup_val=$(timing_for "$label" "startup")
+            benchmark_val=$(timing_for "$label" "benchmark")
+            shutdown_val=$(timing_for "$label" "shutdown")
+            echo "| Startup | ${startup_val} |"
+            echo "| Benchmark | ${benchmark_val} |"
+            if [ "$shutdown_val" != "N/A" ]; then
+                echo "| Shutdown | ${shutdown_val} |"
+            fi
+            echo ""
+
+            # Contract operations
+            local output_file="${TIMING_DATA_DIR}/${label}-benchmark-output.txt"
+            echo "| Step | Duration |"
+            echo "|------|----------|"
+            for step in "${steps[@]}"; do
+                local value
+                value=$(parse_benchmark_output "$output_file" "$step")
+                echo "| ${step} | ${value} |"
+            done
+            local total_val
+            total_val=$(parse_benchmark_output "$output_file" "TOTAL")
+            echo "| **TOTAL** | **${total_val}** |"
+            echo ""
+
+            # Show failed tests if any
+            if [ "$failed" -gt 0 ] && [ -f "$output_file" ]; then
+                echo "**Failed Tests**:"
+                echo '```'
+                grep -E "^\s+[0-9]+\)" "$output_file" 2>/dev/null || true
+                echo '```'
+                echo ""
+            fi
+
+            echo "---"
+            echo ""
+        done
+
+        # ── Architecture Analysis ──
+        echo "## Architecture Analysis"
+        echo ""
+        echo "### Solo (Kubernetes / kind — 3-layer architecture)"
+        echo ""
+        echo "Solo's architecture has three layers: **CLI install → Kubernetes cluster → Hedera network**."
+        echo "This creates distinct restart strategies:"
+        echo ""
+        echo "- **Cold start**: Creates kind cluster + deploys all Hedera components. Slowest path."
+        echo "- **Warm restart**: Reuses existing cluster, only redeploys Hedera network. Cluster creation is skipped."
+        echo "- **Hot restart**: Network is already running. Only a health check is needed. Fastest path."
+        echo ""
+        echo "The 3-layer architecture means Solo can preserve infrastructure (cluster) while redeploying"
+        echo "application (network), giving developers a fast inner loop once the cluster is up."
+        echo ""
+        echo "### Local Node (Docker Compose — 2-layer architecture)"
+        echo ""
+        echo "Local Node's architecture has two layers: **CLI install → Docker containers**."
+        echo "The \`hedera\` CLI always runs \`docker compose down -v\` on stop, which destroys volumes."
+        echo ""
+        echo "- **Cold start**: Full \`hedera start\` from scratch."
+        echo "- **CLI restart**: \`hedera start\` after \`hedera stop\` — always a cold start because volumes are destroyed."
+        echo "- **Docker warm** (experimental): Bypasses CLI with raw \`docker compose stop/start\` to preserve volumes."
+        echo "  This tests whether Docker's volume persistence gives any startup benefit."
+        echo ""
+        echo "The 2-layer architecture is simpler but offers fewer restart strategies."
+        echo "\`hedera stop\` is all-or-nothing — there's no equivalent to Solo's \`--keep-cluster\`."
+        echo ""
+
+        # ── Environment ──
+        echo "## Environment"
+        echo ""
+        echo "- **OS**: $(uname -s) $(uname -r)"
+        echo "- **Architecture**: $(uname -m)"
+        echo "- **Node.js**: $(node --version 2>/dev/null || echo 'N/A')"
+        echo "- **Docker**: $(docker --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || echo 'N/A')"
+        if command -v solo &>/dev/null; then
+            echo "- **Solo**: $(solo --version 2>/dev/null | grep -oE 'Version[[:space:]]*:[[:space:]]*[0-9.]+' | head -1 || echo 'installed')"
+        fi
+        if command -v anvil &>/dev/null; then
+            echo "- **Anvil**: $(anvil --version 2>/dev/null | head -1 || echo 'installed')"
+        fi
+        if command -v hedera &>/dev/null; then
+            echo "- **Hedera CLI**: $(hedera --version 2>/dev/null | head -1 || echo 'installed')"
+        fi
+        echo ""
+        echo "---"
+        echo ""
+        echo "*Report generated by run-deploy-benchmark.sh --full-lifecycle*"
+        echo ""
+        echo "Timing data: \`${TIMESTAMP}_timing-data/\`"
+    } > "$report_file"
+
+    echo -e "${GREEN}Report saved to: ${report_file}${NC}"
+    echo -e "${GREEN}Timing data saved to: ${TIMING_DATA_DIR}/${NC}"
 }
 
 # ============================================================================
@@ -634,12 +1328,18 @@ generate_report() {
 
 OVERALL_START=$(date +%s)
 
-for label in "${RUN_LIST[@]}"; do
-    run_benchmark "$label" || true
-    echo ""
-done
+if $FULL_LIFECYCLE; then
+    # Full lifecycle mode: lifecycle orchestrators manage RUN_LIST and shutdown
+    run_full_lifecycle
+else
+    # Standard mode: run each network independently
+    for label in "${RUN_LIST[@]}"; do
+        run_benchmark "$label" || true
+        echo ""
+    done
 
-generate_report
+    generate_report
+fi
 
 OVERALL_END=$(date +%s)
 OVERALL_DURATION=$((OVERALL_END - OVERALL_START))

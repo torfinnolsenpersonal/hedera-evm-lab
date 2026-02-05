@@ -34,6 +34,11 @@ YYYY-MM-DD_HH-MM-SS_[description].md
 ./scripts/run-deploy-benchmark.sh --warm-cluster solo
 ./scripts/run-deploy-benchmark.sh --warm-cluster local    # anvil + localnode + solo
 ./scripts/run-deploy-benchmark.sh --warm-cluster all
+
+# Full lifecycle (install → cold → warm → hot for Solo; cold → restart → docker warm for Local Node)
+./scripts/run-deploy-benchmark.sh --full-lifecycle solo
+./scripts/run-deploy-benchmark.sh --full-lifecycle localnode
+./scripts/run-deploy-benchmark.sh --full-lifecycle local    # anvil + localnode + solo
 ```
 
 ## Report Types
@@ -57,7 +62,18 @@ Single-contract cold-start benchmark timing the full developer journey.
 - **Per-Network Details** — individual operation timings and orchestrator phase breakdowns
 - **Environment** — system info, tool versions
 
-Both report types store timing data in an accompanying `_timing-data/` directory with
+### Full Lifecycle Benchmark (`_deploy-benchmark.md` with `--full-lifecycle`)
+
+Cross-platform comparison of restart strategies across the complete developer journey.
+
+- **Test Matrix** — Solo (install, cold, warm, hot) vs Local Node (cold, restart, docker warm)
+- **Executive Summary** — pass/fail and startup times per scenario
+- **Startup Time Comparison** — side-by-side table across all scenarios
+- **Contract Operations Comparison** — per-step timings across all scenarios
+- **Per-Scenario Details** — individual breakdown for each run
+- **Architecture Analysis** — commentary on how Kubernetes (3-layer) vs Docker Compose (2-layer) affects restart strategies
+
+All report types store timing data in an accompanying `_timing-data/` directory with
 JSON exports and raw timing entries.
 
 ## Historical Reports
