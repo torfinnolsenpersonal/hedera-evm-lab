@@ -199,6 +199,28 @@ if [ $ATTEMPT -eq $MAX_ATTEMPTS ]; then
     echo "Check pod status with: kubectl get pods -n ${SOLO_NAMESPACE}"
 fi
 
+# Also verify mirror node is healthy (critical for contract deployments)
+echo "Verifying mirror node health..."
+MIRROR_ATTEMPTS=0
+MIRROR_MAX_ATTEMPTS=60
+MIRROR_PORT="${MIRROR_REST_PORT:-8081}"
+
+while [ $MIRROR_ATTEMPTS -lt $MIRROR_MAX_ATTEMPTS ]; do
+    # Check mirror node REST API - /api/v1/network/nodes is a quick health check
+    if curl -s "http://127.0.0.1:${MIRROR_PORT}/api/v1/network/nodes" 2>/dev/null | grep -q "nodes"; then
+        echo -e "${GREEN}Mirror Node REST API is responding correctly${NC}"
+        break
+    fi
+    MIRROR_ATTEMPTS=$((MIRROR_ATTEMPTS + 1))
+    echo "Waiting for Mirror Node... (attempt $MIRROR_ATTEMPTS/$MIRROR_MAX_ATTEMPTS)"
+    sleep 5
+done
+
+if [ $MIRROR_ATTEMPTS -eq $MIRROR_MAX_ATTEMPTS ]; then
+    echo -e "${YELLOW}Warning: Mirror Node may not be fully ready yet${NC}"
+    echo "Contract deployments may fail until mirror node is healthy"
+fi
+
 if [ "$TIMING_ENABLED" = "true" ]; then timing_end "solo_health_wait"; fi
 
 echo ""
