@@ -15,14 +15,22 @@
     "benchmark:anvil": "hardhat test test/DeployBenchmark.test.ts --network anvil",
     "benchmark:localnode": "hardhat test test/DeployBenchmark.test.ts --network localnode",
     "benchmark:solo": "hardhat test test/DeployBenchmark.test.ts --network solo",
-    "benchmark:hedera_testnet": "hardhat test test/DeployBenchmark.test.ts --network hedera_testnet"
+    "benchmark:hedera_testnet": "hardhat test test/DeployBenchmark.test.ts --network hedera_testnet",
+    "benchmark:evm": "hardhat test test/EVMBenchmark.test.ts",
+    "benchmark:evm:solo": "hardhat test test/EVMBenchmark.test.ts --network solo",
+    "benchmark:evm:localnode": "hardhat test test/EVMBenchmark.test.ts --network localnode",
+    "benchmark:evm:anvil": "hardhat test test/EVMBenchmark.test.ts --network anvil",
+    "benchmark:hapi:solo": "hardhat test test/HAPIBenchmark.test.ts --network solo"
   },
   "devDependencies": {
     "@nomicfoundation/hardhat-toolbox": "^4.0.0",
-    "hardhat": "^2.19.0",
-    "typescript": "^5.3.0",
-    "ts-node": "^10.9.0",
     "@types/node": "^20.0.0",
-    "dotenv": "^16.3.0"
+    "dotenv": "^16.3.0",
+    "hardhat": "^2.19.0",
+    "ts-node": "^10.9.0",
+    "typescript": "^5.3.0"
+  },
+  "dependencies": {
+    "@hashgraph/sdk": "^2.80.0"
   }
 }

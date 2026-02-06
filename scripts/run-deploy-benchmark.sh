@@ -43,6 +43,7 @@ NC='\033[0m'
 CLEAN_MODE=true
 WARM_CLUSTER=false
 FULL_LIFECYCLE=false
+CLEAN_IMAGES=false
 MODE=""
 
 while [[ $# -gt 0 ]]; do
@@ -69,6 +70,10 @@ while [[ $# -gt 0 ]]; do
             CLEAN_MODE=false
             WARM_CLUSTER=false
             FULL_LIFECYCLE=true
+            shift
+            ;;
+        --clean-images)
+            CLEAN_IMAGES=true
             shift
             ;;
         *)
@@ -149,6 +154,8 @@ net_name() {
         *_cold) echo "${1%_cold}" ;;
         *_warm) echo "${1%_warm}" ;;
         *_hot) echo "${1%_hot}" ;;
+        *_evm) echo "${1%_evm}" ;;
+        *_hapi) echo "${1%_hapi}" ;;
         *_restart) echo "${1%_restart}" ;;
         *_docker_warm) echo "${1%_docker_warm}" ;;
         *) echo "$1" ;;
@@ -165,6 +172,8 @@ display_name() {
         *_cold) echo "${1%_cold} (cold start)" ;;
         *_warm) echo "${1%_warm} (warm restart)" ;;
         *_hot) echo "${1%_hot} (hot restart)" ;;
+        *_evm) echo "${1%_evm} (EVM test)" ;;
+        *_hapi) echo "${1%_hapi} (HAPI test)" ;;
         *_restart) echo "${1%_restart} (CLI restart)" ;;
         *_docker_warm) echo "${1%_docker_warm} (docker warm)" ;;
         *) echo "$1" ;;
@@ -216,7 +225,7 @@ start_network() {
         solo)
             echo -e "${CYAN}Starting Solo...${NC}"
             "${SCRIPT_DIR}/start-solo.sh"
-            sleep 30  # Stabilization wait
+            sleep 60  # Stabilization wait (mirror node needs extra time)
             ;;
         hedera_testnet)
             # Remote network -- just validate connectivity
@@ -290,6 +299,41 @@ ensure_network_clean() {
     fi
 
     echo -e "${GREEN}Clean slate confirmed for ${net}${NC}"
+}
+
+# Clean Docker images and volumes to simulate first-run on a fresh machine.
+# This is called when --clean-images flag is set to measure true cold start times.
+clean_docker_artifacts() {
+    echo -e "${YELLOW}Cleaning Docker images and volumes (simulating fresh machine)...${NC}"
+
+    # Stop all containers first
+    if docker ps -q 2>/dev/null | grep -q .; then
+        echo "Stopping running containers..."
+        docker stop $(docker ps -q) 2>/dev/null || true
+    fi
+
+    # Remove all containers
+    if docker ps -aq 2>/dev/null | grep -q .; then
+        echo "Removing containers..."
+        docker rm -f $(docker ps -aq) 2>/dev/null || true
+    fi
+
+    # Remove all volumes
+    echo "Removing Docker volumes..."
+    docker volume prune -f 2>/dev/null || true
+
+    # Remove all images (this will force re-pull on next start)
+    echo "Removing Docker images..."
+    docker image prune -af 2>/dev/null || true
+
+    # Remove specific network images to ensure fresh pull
+    # Solo images
+    docker rmi $(docker images -q "gcr.io/hedera-registry/*" 2>/dev/null) 2>/dev/null || true
+    docker rmi $(docker images -q "hashgraph/*" 2>/dev/null) 2>/dev/null || true
+    # Local Node images
+    docker rmi $(docker images -q "hashgraph/hedera*" 2>/dev/null) 2>/dev/null || true
+
+    echo -e "${GREEN}Docker artifacts cleaned${NC}"
 }
 
 # Verify RPC endpoint is healthy (used for hot restart where network is already running)
@@ -640,6 +684,11 @@ run_anvil_lifecycle() {
     # Ensure no stale anvil process from a previous session
     ensure_network_clean anvil
 
+    # Clean Docker artifacts if --clean-images flag is set (Anvil doesn't use Docker, but keep consistent)
+    if [ "$CLEAN_IMAGES" = "true" ]; then
+        clean_docker_artifacts
+    fi
+
     # ── Step 1: anvil_cold — start anvil, run benchmark, keep running ──
     echo -e "${CYAN}[1/2] anvil_cold: start + benchmark${NC}"
     local cold_label="anvil_cold"
@@ -697,6 +746,89 @@ run_testnet_lifecycle() {
 }
 
 # ============================================================================
+# Run EVM Benchmark (ERC20 + 3 accounts)
+# ============================================================================
+
+run_evm_benchmark() {
+    local label="${1:-solo}"
+    local net
+    net=$(net_name "$label")
+    local output_file="${TEMP_DIR}/evm_benchmark_${label}.txt"
+
+    echo -e "${CYAN}Running EVM Benchmark (ERC20 + 3 accounts)...${NC}"
+
+    timing_start "${label}_evm_benchmark"
+
+    cd "$HARDHAT_DIR"
+    export BENCHMARK_LABEL="${label}_evm"
+    set +e
+    BENCHMARK_LABEL="${label}_evm" npx hardhat test test/EVMBenchmark.test.ts --network "$net" 2>&1 | tee "$output_file"
+    local evm_exit=${PIPESTATUS[0]}
+    set -e
+
+    timing_end "${label}_evm_benchmark"
+
+    if [ "$evm_exit" -eq 0 ]; then
+        echo -e "${GREEN}EVM Benchmark PASSED${NC}"
+    else
+        echo -e "${RED}EVM Benchmark FAILED${NC}"
+    fi
+
+    # Copy output for report
+    if [ -f "$output_file" ]; then
+        cp "$output_file" "${TIMING_DATA_DIR}/${label}-evm-benchmark-output.txt"
+    fi
+
+    # Parse EVM timing from output
+    local evm_total
+    evm_total=$(grep -oE '\[TIMING\] evm_total=[0-9]+' "$output_file" 2>/dev/null | grep -oE '[0-9]+' | head -1 || echo "0")
+    kv_set EVM_TOTAL "$label" "$evm_total"
+
+    return $evm_exit
+}
+
+# ============================================================================
+# Run HAPI Benchmark (SDK token operations + 3 accounts)
+# ============================================================================
+
+run_hapi_benchmark() {
+    local label="${1:-solo}"
+    local output_file="${TEMP_DIR}/hapi_benchmark_${label}.txt"
+
+    echo -e "${CYAN}Running HAPI Benchmark (SDK token ops + 3 accounts)...${NC}"
+
+    timing_start "${label}_hapi_benchmark"
+
+    cd "$HARDHAT_DIR"
+    export BENCHMARK_LABEL="${label}_hapi"
+    set +e
+    # HAPI benchmark uses the Hedera SDK, run with hardhat test for mocha
+    BENCHMARK_LABEL="${label}_hapi" npx hardhat test test/HAPIBenchmark.test.ts --network solo 2>&1 | tee "$output_file"
+    local hapi_exit=${PIPESTATUS[0]}
+    set -e
+
+    timing_end "${label}_hapi_benchmark"
+
+    if [ "$hapi_exit" -eq 0 ]; then
+        echo -e "${GREEN}HAPI Benchmark PASSED${NC}"
+    else
+        echo -e "${RED}HAPI Benchmark FAILED${NC}"
+    fi
+
+    # Copy output for report
+    if [ -f "$output_file" ]; then
+        cp "$output_file" "${TIMING_DATA_DIR}/${label}-hapi-benchmark-output.txt"
+    fi
+
+    # Parse HAPI timing from output
+    local hapi_total
+    hapi_total=$(grep -oE '\[TIMING\] hapi_total=[0-9]+' "$output_file" 2>/dev/null | grep -oE '[0-9]+' | head -1 || echo "0")
+    kv_set HAPI_TOTAL "$label" "$hapi_total"
+
+    return $hapi_exit
+}
+
+# ============================================================================
 # Full Lifecycle: Solo (4 scenarios)
 # ============================================================================
 
@@ -749,6 +881,14 @@ run_solo_lifecycle() {
     echo ""
 
     # ── Step 2: solo_cold — full cold start (kind create + solo deploy + benchmark) ──
+    # Ensure clean slate before cold start (install may have started Solo)
+    ensure_network_clean solo
+
+    # Clean Docker artifacts if --clean-images flag is set (simulates fresh machine)
+    if [ "$CLEAN_IMAGES" = "true" ]; then
+        clean_docker_artifacts
+    fi
+
     echo -e "${CYAN}[2/4] solo_cold: full cold start${NC}"
     local cold_label="solo_cold"
     RUN_LIST+=("$cold_label")
@@ -756,14 +896,40 @@ run_solo_lifecycle() {
     echo ""
 
     # ── Step 3: solo_warm — redeploy on existing cluster ──
-    echo -e "${CYAN}[3/4] solo_warm: redeploy on existing cluster${NC}"
+    echo -e "${CYAN}[3/6] solo_warm: redeploy on existing cluster${NC}"
     local warm_label="solo_warm"
     RUN_LIST+=("$warm_label")
     run_benchmark_lifecycle "$warm_label" "start_network solo" "none" || true
     echo ""
 
-    # ── Step 4: solo_hot — network already running, health check only ──
-    echo -e "${CYAN}[4/4] solo_hot: network already running (health check + benchmark)${NC}"
+    # ── Step 4: EVM Benchmark (network still running from warm) ──
+    echo -e "${CYAN}[4/6] solo_evm: EVM benchmark (ERC20 + 3 accounts)${NC}"
+    local evm_label="solo_evm"
+    RUN_LIST+=("$evm_label")
+    timing_init "$evm_label"
+    run_evm_benchmark "solo" || true
+    kv_set NET_STATUS "$evm_label" "$([ $? -eq 0 ] && echo 'PASS' || echo 'FAIL')"
+    kv_set NET_PASSED "$evm_label" "0"
+    kv_set NET_FAILED "$evm_label" "0"
+    kv_set NET_TOTAL "$evm_label" "0"
+    timing_export_json "${TIMING_DATA_DIR}/${evm_label}-timing.json"
+    echo ""
+
+    # ── Step 5: HAPI Benchmark (network still running) ──
+    echo -e "${CYAN}[5/6] solo_hapi: HAPI benchmark (SDK token ops + 3 accounts)${NC}"
+    local hapi_label="solo_hapi"
+    RUN_LIST+=("$hapi_label")
+    timing_init "$hapi_label"
+    run_hapi_benchmark "solo" || true
+    kv_set NET_STATUS "$hapi_label" "$([ $? -eq 0 ] && echo 'PASS' || echo 'FAIL')"
+    kv_set NET_PASSED "$hapi_label" "0"
+    kv_set NET_FAILED "$hapi_label" "0"
+    kv_set NET_TOTAL "$hapi_label" "0"
+    timing_export_json "${TIMING_DATA_DIR}/${hapi_label}-timing.json"
+    echo ""
+
+    # ── Step 6: solo_hot — network already running, health check only ──
+    echo -e "${CYAN}[6/6] solo_hot: network already running (health check + benchmark)${NC}"
     local hot_label="solo_hot"
     RUN_LIST+=("$hot_label")
     # For hot restart, just verify health — network is already running from warm step
@@ -816,6 +982,14 @@ run_localnode_lifecycle() {
     echo ""
 
     # ── Step 2: localnode_cold — full cold start ──
+    # Ensure clean slate before cold start
+    ensure_network_clean localnode
+
+    # Clean Docker artifacts if --clean-images flag is set (simulates fresh machine)
+    if [ "$CLEAN_IMAGES" = "true" ]; then
+        clean_docker_artifacts
+    fi
+
     echo -e "${CYAN}[2/4] localnode_cold: full cold start${NC}"
     local cold_label="localnode_cold"
     RUN_LIST+=("$cold_label")
