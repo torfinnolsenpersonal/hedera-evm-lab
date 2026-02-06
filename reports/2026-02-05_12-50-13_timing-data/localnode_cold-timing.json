@@ -1,0 +1,22 @@
+{
+  "network": "localnode_cold",
+  "timestamp": "2026-02-05T20:57:59Z",
+  "total_duration_ms": 124685,
+  "phases": {
+    "localnode_cold_startup": {
+      "duration_ms": 107171,
+      "start_ms": 1770324955063,
+      "end_ms": 1770325062234
+    },
+    "localnode_cold_benchmark": {
+      "duration_ms": 8313,
+      "start_ms": 1770325062288,
+      "end_ms": 1770325070601
+    },
+    "localnode_cold_shutdown": {
+      "duration_ms": 8867,
+      "start_ms": 1770325070750,
+      "end_ms": 1770325079617
+    }
+  }
+}

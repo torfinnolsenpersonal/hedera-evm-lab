@@ -1,0 +1,80 @@
+WARNING: You are currently using Node.js v25.5.0, which is not supported by Hardhat. This can lead to unexpected behavior. See https://v2.hardhat.org/nodejs-versions
+
+
+
+
+  Deploy Benchmark
+
+╔══════════════════════════════════════════════════════════╗
+║         DEPLOY BENCHMARK - solo                        ║
+╠══════════════════════════════════════════════════════════╣
+║  Default Wait:   2500ms                                ║
+║  Intermediate:   1500ms                                ║
+║  Timeout:        90000ms                               ║
+╚══════════════════════════════════════════════════════════╝
+
+    1) Step 1: Deploy Counter contract
+    2) Step 2: Write - increment()
+    3) Step 3: Read - count()
+    4) Step 4: Event verification - CountChanged
+    5) Step 5: Write - setCount(42)
+    6) Step 6: Final read - verify count() == 42
+
+╔══════════════════════════════════════════════════════════╗
+║         DEPLOY BENCHMARK - solo                        ║
+╠══════════════════════════════════════════════════════════╣
+╠══════════════════════════════════════════════════════════╣
+║  TOTAL                                             0ms ║
+╚══════════════════════════════════════════════════════════╝
+
+[EVIDENCE] contract_address=
+[EVIDENCE] deploy_tx=
+[EVIDENCE] bytecode_sha256=
+[EVIDENCE] artifact_written=/Users/torfinn/hedera-evm-lab/reports/2026-02-05_13-30-15_timing-data/solo_hot-contract-evidence.json
+
+
+  0 passing (582ms)
+  6 failing
+
+  1) Deploy Benchmark
+       Step 1: Deploy Counter contract:
+     ProviderError: [Request ID: d7c5afdb-7bd5-4a0d-833e-e5c89211fc4a] Mirror node upstream failure: statusCode=503, message=Service unavailable
+      at HttpProvider.request (/Users/torfinn/hedera-evm-lab/examples/hardhat/contract-smoke/node_modules/hardhat/src/internal/core/providers/http.ts:116:21)
+      at processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async HardhatEthersProvider.getBlockNumber (/Users/torfinn/hedera-evm-lab/examples/hardhat/contract-smoke/node_modules/@nomicfoundation/hardhat-ethers/src/internal/hardhat-ethers-provider.ts:134:25)
+      at async HardhatEthersSigner.sendTransaction (/Users/torfinn/hedera-evm-lab/examples/hardhat/contract-smoke/node_modules/@nomicfoundation/hardhat-ethers/src/signers.ts:182:25)
+      at async ContractFactory.deploy (/Users/torfinn/hedera-evm-lab/examples/hardhat/contract-smoke/node_modules/ethers/src.ts/contract/factory.ts:111:24)
+      at async Context.<anonymous> (/Users/torfinn/hedera-evm-lab/examples/hardhat/contract-smoke/test/DeployBenchmark.test.ts:164:15)
+
+  2) Deploy Benchmark
+       Step 2: Write - increment():
+     TypeError: Cannot read properties of undefined (reading 'increment')
+      at Context.<anonymous> (test/DeployBenchmark.test.ts:194:30)
+      at processImmediate (node:internal/timers:504:21)
+
+  3) Deploy Benchmark
+       Step 3: Read - count():
+     TypeError: Cannot read properties of undefined (reading 'count')
+      at Context.<anonymous> (test/DeployBenchmark.test.ts:204:33)
+      at processImmediate (node:internal/timers:504:21)
+
+  4) Deploy Benchmark
+       Step 4: Event verification - CountChanged:
+     TypeError: Cannot read properties of undefined (reading 'filters')
+      at Context.<anonymous> (test/DeployBenchmark.test.ts:214:28)
+      at processImmediate (node:internal/timers:504:21)
+
+  5) Deploy Benchmark
+       Step 5: Write - setCount(42):
+     TypeError: Cannot read properties of undefined (reading 'setCount')
+      at Context.<anonymous> (test/DeployBenchmark.test.ts:228:30)
+      at processImmediate (node:internal/timers:504:21)
+
+  6) Deploy Benchmark
+       Step 6: Final read - verify count() == 42:
+     TypeError: Cannot read properties of undefined (reading 'count')
+      at Context.<anonymous> (test/DeployBenchmark.test.ts:238:33)
+      at processImmediate (node:internal/timers:504:21)
+
+
+

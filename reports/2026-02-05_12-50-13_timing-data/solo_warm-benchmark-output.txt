@@ -1,0 +1,51 @@
+WARNING: You are currently using Node.js v25.5.0, which is not supported by Hardhat. This can lead to unexpected behavior. See https://v2.hardhat.org/nodejs-versions
+
+
+
+
+  Deploy Benchmark
+
+╔══════════════════════════════════════════════════════════╗
+║         DEPLOY BENCHMARK - solo                        ║
+╠══════════════════════════════════════════════════════════╣
+║  Default Wait:   2500ms                                ║
+║  Intermediate:   1500ms                                ║
+║  Timeout:        90000ms                               ║
+╚══════════════════════════════════════════════════════════╝
+
+    1) "before all" hook for "Step 1: Deploy Counter contract"
+
+╔══════════════════════════════════════════════════════════╗
+║         DEPLOY BENCHMARK - solo                        ║
+╠══════════════════════════════════════════════════════════╣
+╠══════════════════════════════════════════════════════════╣
+║  TOTAL                                             0ms ║
+╚══════════════════════════════════════════════════════════╝
+
+[EVIDENCE] contract_address=
+[EVIDENCE] deploy_tx=
+[EVIDENCE] bytecode_sha256=
+[EVIDENCE] artifact_written=/Users/torfinn/hedera-evm-lab/reports/2026-02-05_12-50-13_timing-data/solo_warm-contract-evidence.json
+
+
+  0 passing (135ms)
+  1 failing
+
+  1) Deploy Benchmark
+       "before all" hook for "Step 1: Deploy Counter contract":
+     HardhatError: HH108: Cannot connect to the network solo.
+Please make sure your node is running, and check your internet connection and networks config
+      at HttpProvider._fetchJsonRpcResponse (/Users/torfinn/hedera-evm-lab/examples/hardhat/contract-smoke/node_modules/hardhat/src/internal/core/providers/http.ts:249:15)
+      at processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async HttpProvider.request (/Users/torfinn/hedera-evm-lab/examples/hardhat/contract-smoke/node_modules/hardhat/src/internal/core/providers/http.ts:104:29)
+      at async ChainIdValidatorProvider._getChainIdFromEthNetVersion (/Users/torfinn/hedera-evm-lab/examples/hardhat/contract-smoke/node_modules/hardhat/src/internal/core/providers/chainId.ts:33:17)
+      at async ChainIdValidatorProvider._getChainId (/Users/torfinn/hedera-evm-lab/examples/hardhat/contract-smoke/node_modules/hardhat/src/internal/core/providers/chainId.ts:17:25)
+      at async ChainIdValidatorProvider.request (/Users/torfinn/hedera-evm-lab/examples/hardhat/contract-smoke/node_modules/hardhat/src/internal/core/providers/chainId.ts:56:29)
+      at async getSigners (/Users/torfinn/hedera-evm-lab/examples/hardhat/contract-smoke/node_modules/@nomicfoundation/hardhat-ethers/src/internal/helpers.ts:46:16)
+      at async Context.<anonymous> (/Users/torfinn/hedera-evm-lab/examples/hardhat/contract-smoke/test/DeployBenchmark.test.ts:113:15)
+  
+      Caused by: Error: connect ECONNREFUSED 127.0.0.1:7546
+          at TCPConnectWrap.afterConnect [as oncomplete] (node:net:1637:16)
+
+
+

@@ -1,0 +1,22 @@
+{
+  "network": "anvil_hot",
+  "timestamp": "2026-02-05T20:50:27Z",
+  "total_duration_ms": 1609,
+  "phases": {
+    "anvil_hot_startup": {
+      "duration_ms": 23,
+      "start_ms": 1770324625872,
+      "end_ms": 1770324625895
+    },
+    "anvil_hot_benchmark": {
+      "duration_ms": 762,
+      "start_ms": 1770324625917,
+      "end_ms": 1770324626679
+    },
+    "anvil_hot_shutdown": {
+      "duration_ms": 629,
+      "start_ms": 1770324626768,
+      "end_ms": 1770324627397
+    }
+  }
+}

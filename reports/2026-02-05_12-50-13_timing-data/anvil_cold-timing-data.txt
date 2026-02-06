@@ -1,0 +1,4 @@
+START|anvil_cold_startup|1770324624135
+END|anvil_cold_startup|1770324624847|1770324624135|712
+START|anvil_cold_benchmark|1770324624874
+END|anvil_cold_benchmark|1770324625731|1770324624874|857

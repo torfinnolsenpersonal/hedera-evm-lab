@@ -1,0 +1,12 @@
+{
+  "network": "solo_install",
+  "timestamp": "2026-02-05T21:31:07Z",
+  "total_duration_ms": 40546,
+  "phases": {
+    "solo_install_startup": {
+      "duration_ms": 40473,
+      "start_ms": 1770327026742,
+      "end_ms": 1770327067215
+    }
+  }
+}

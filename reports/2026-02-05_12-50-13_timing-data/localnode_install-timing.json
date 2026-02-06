@@ -1,0 +1,12 @@
+{
+  "network": "localnode_install",
+  "timestamp": "2026-02-05T20:55:55Z",
+  "total_duration_ms": 19312,
+  "phases": {
+    "localnode_install_startup": {
+      "duration_ms": 19220,
+      "start_ms": 1770324935747,
+      "end_ms": 1770324954967
+    }
+  }
+}

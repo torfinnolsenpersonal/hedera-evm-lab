@@ -1,0 +1,22 @@
+{
+  "network": "localnode_restart",
+  "timestamp": "2026-02-05T21:00:45Z",
+  "total_duration_ms": 165981,
+  "phases": {
+    "localnode_restart_startup": {
+      "duration_ms": 154947,
+      "start_ms": 1770325079880,
+      "end_ms": 1770325234827
+    },
+    "localnode_restart_benchmark": {
+      "duration_ms": 10390,
+      "start_ms": 1770325235073,
+      "end_ms": 1770325245463
+    },
+    "localnode_restart_shutdown": {
+      "duration_ms": 173,
+      "start_ms": 1770325245586,
+      "end_ms": 1770325245759
+    }
+  }
+}

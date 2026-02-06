@@ -1,0 +1,46 @@
+{
+  "run_id": "2026-02-05_13-30-15",
+  "git": {
+    "commit": "6ebcb94",
+    "branch": "main",
+    "dirty": false
+  },
+  "environment": {
+  "timestamp": "2026-02-05T21:30:19Z",
+  "os": "Darwin",
+  "os_version": "24.6.0",
+  "arch": "arm64",
+  "checks": [
+    {"category": "Core Requirements", "name": "Git", "status": "ok", "version": "git version 2.52.0"},
+    {"category": "Core Requirements", "name": "Node.js", "status": "ok", "version": "25.5.0"},
+    {"category": "Core Requirements", "name": "NPM", "status": "ok", "version": "11.8.0"},
+    {"category": "Core Requirements", "name": "Docker", "status": "ok", "version": "27.3.1"},
+    {"category": "Core Requirements", "name": "Docker Compose", "status": "ok", "version": "5.0.1"},
+    {"category": "Docker Resources", "name": "Docker memory", "status": "warn", "version": "11.67GiB"},
+    {"category": "Docker Resources", "name": "Docker CPUs", "status": "ok", "version": "8"},
+    {"category": "Solo-Specific Requirements (Kubernetes)", "name": "kubectl", "status": "ok", "version": "v1.34.1"},
+    {"category": "Solo-Specific Requirements (Kubernetes)", "name": "kind", "status": "ok", "version": "v0.31.0"},
+    {"category": "Solo-Specific Requirements (Kubernetes)", "name": "Helm", "status": "ok", "version": "v3.18.4"},
+    {"category": "Optional Tools", "name": "curl", "status": "ok", "version": "curl 8.7.1 (x86_64-apple-darwin24.0) libcurl/8.7.1 (SecureTransport) LibreSSL/3.3.6 zlib/1.2.12 nghttp2/1.64.0"},
+    {"category": "Optional Tools", "name": "jq", "status": "ok", "version": "jq-1.7.1"},
+    {"category": "Optional Tools", "name": "Homebrew", "status": "ok", "version": "Homebrew 5.0.13"},
+    {"category": "Homebrew Tap (for Solo via brew)", "name": "Homebrew tap hiero-ledger/tools", "status": "ok"},
+    {"category": "Installed Hedera Tools", "name": "hedera-local CLI", "status": "ok"},
+    {"category": "Installed Hedera Tools", "name": "Solo CLI", "status": "ok"},
+    {"category": "Port Availability", "name": "Port 7546", "status": "in_use", "version": "/Applications/Docker.app/Contents/MacOS/com.docker.backend"},
+    {"category": "Port Availability", "name": "Port 5551", "status": "in_use", "version": "/Applications/Docker.app/Contents/MacOS/com.docker.backend"},
+    {"category": "Port Availability", "name": "Port 5600", "status": "in_use", "version": "/Applications/Docker.app/Contents/MacOS/com.docker.backend"}
+  ],
+  "issues_found": 0
+},
+  "steps": [
+    {"name": "solo_cold_benchmark", "command": "hardhat test --network solo", "exit_code": 1, "output_sha256": "990c1bc79928c96f82d6a951e5d4285ab8c84fc5c7826b3367765bbe39273ef7"},
+    {"name": "solo_warm_benchmark", "command": "hardhat test --network solo", "exit_code": 1, "output_sha256": "65486fa9dd432fcbb2001e07c31491b46a94bf1d66c905e44eeac08364584dbe"},
+    {"name": "solo_hot_benchmark", "command": "hardhat test --network solo", "exit_code": 6, "output_sha256": "cc95f928d02c1466836d6cc93de28d1ad60d28fb1e2fc2b8b3388a4266cdf8e9"}
+  ],
+  "contracts": [
+    {"label": "solo_cold"},
+    {"label": "solo_warm"},
+    {"label": "solo_hot"}
+  ]
+}

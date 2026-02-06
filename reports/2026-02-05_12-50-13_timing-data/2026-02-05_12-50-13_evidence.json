@@ -1,0 +1,54 @@
+{
+  "run_id": "2026-02-05_12-50-13",
+  "git": {
+    "commit": "6ebcb94",
+    "branch": "main",
+    "dirty": false
+  },
+  "environment": {
+  "timestamp": "2026-02-05T20:50:18Z",
+  "os": "Darwin",
+  "os_version": "24.6.0",
+  "arch": "arm64",
+  "checks": [
+    {"category": "Core Requirements", "name": "Git", "status": "ok", "version": "git version 2.52.0"},
+    {"category": "Core Requirements", "name": "Node.js", "status": "ok", "version": "25.5.0"},
+    {"category": "Core Requirements", "name": "NPM", "status": "ok", "version": "11.8.0"},
+    {"category": "Core Requirements", "name": "Docker", "status": "ok", "version": "27.3.1"},
+    {"category": "Core Requirements", "name": "Docker Compose", "status": "ok", "version": "5.0.1"},
+    {"category": "Docker Resources", "name": "Docker memory", "status": "warn", "version": "11.67GiB"},
+    {"category": "Docker Resources", "name": "Docker CPUs", "status": "ok", "version": "8"},
+    {"category": "Solo-Specific Requirements (Kubernetes)", "name": "kubectl", "status": "ok", "version": "v1.34.1"},
+    {"category": "Solo-Specific Requirements (Kubernetes)", "name": "kind", "status": "ok", "version": "v0.31.0"},
+    {"category": "Solo-Specific Requirements (Kubernetes)", "name": "Helm", "status": "ok", "version": "v3.18.4"},
+    {"category": "Optional Tools", "name": "curl", "status": "ok", "version": "curl 8.7.1 (x86_64-apple-darwin24.0) libcurl/8.7.1 (SecureTransport) LibreSSL/3.3.6 zlib/1.2.12 nghttp2/1.64.0"},
+    {"category": "Optional Tools", "name": "jq", "status": "ok", "version": "jq-1.7.1"},
+    {"category": "Optional Tools", "name": "Homebrew", "status": "ok", "version": "Homebrew 5.0.13"},
+    {"category": "Homebrew Tap (for Solo via brew)", "name": "Homebrew tap hiero-ledger/tools", "status": "ok"},
+    {"category": "Installed Hedera Tools", "name": "hedera-local CLI", "status": "ok"},
+    {"category": "Installed Hedera Tools", "name": "Solo CLI", "status": "ok"},
+    {"category": "Port Availability", "name": "Port 7546", "status": "in_use", "version": "/Applications/Docker.app/Contents/MacOS/com.docker.backend"},
+    {"category": "Port Availability", "name": "Port 5551", "status": "in_use", "version": "/Applications/Docker.app/Contents/MacOS/com.docker.backend"},
+    {"category": "Port Availability", "name": "Port 5600", "status": "in_use", "version": "/Applications/Docker.app/Contents/MacOS/com.docker.backend"}
+  ],
+  "issues_found": 0
+},
+  "steps": [
+    {"name": "anvil_cold_benchmark", "command": "hardhat test --network anvil", "exit_code": 0, "output_sha256": "7d090f624654348e0fe36498ef6a4a2bcbe6c78208ef0b590bc3d62808a74d35"},
+    {"name": "anvil_hot_benchmark", "command": "hardhat test --network anvil", "exit_code": 0, "output_sha256": "8acb745158e5fd09cb3c13814189182c5a13d95d33196b1d61bcaec17c063023"},
+    {"name": "solo_cold_benchmark", "command": "hardhat test --network solo", "exit_code": 1, "output_sha256": "868eed5057ce6d5b0e2ef41d70d8864e87cb07ff75d1d374b6e367d5ec4d9373"},
+    {"name": "solo_warm_benchmark", "command": "hardhat test --network solo", "exit_code": 1, "output_sha256": "13f07b0f114565606f0b7976bdeafcc2045ac3f95264cdca2946f472b7dd7a3d"},
+    {"name": "solo_hot_benchmark", "command": "hardhat test --network solo", "exit_code": 6, "output_sha256": "832667f833d65654553f270deafcc2ae0852aedba4e06796af6cfd0ccf0b0411"},
+    {"name": "localnode_cold_benchmark", "command": "hardhat test --network localnode", "exit_code": 0, "output_sha256": "64ce8b865cc51609edb954101b96cd1bdeefad792a6d96f7e2a3f7fa6efc4354"},
+    {"name": "localnode_restart_benchmark", "command": "hardhat test --network localnode", "exit_code": 1, "output_sha256": "76e919a168ff2c1b5395468db98f44d169b442760245a9dfc4fe03d816ae0009"}
+  ],
+  "contracts": [
+    {"label": "anvil_cold", "address": "0x5FbDB2315678afecb367f032d93F642f64180aa3", "bytecode_sha256": "0x648c085f7595974d1df3ebf3f3718e2abef1ea5a695812ee630d5043e22d003c", "deploy_tx": "0x014755a0cee24f0b0b4cf24d6d77e4d524e3996117c466695d996172fbb2cda1"},
+    {"label": "anvil_hot", "address": "0xCf7Ed3AccA5a467e9e704C703E8D87F634fB0Fc9", "bytecode_sha256": "0x648c085f7595974d1df3ebf3f3718e2abef1ea5a695812ee630d5043e22d003c", "deploy_tx": "0xaacf57719eb78fc83638ac7498ec6cddbea2bffa749145f532d4884082396724"},
+    {"label": "solo_cold"},
+    {"label": "solo_warm"},
+    {"label": "solo_hot"},
+    {"label": "localnode_cold", "address": "0x23f5e49569A835d7bf9AefD30e4f60CdD570f225", "bytecode_sha256": "0x648c085f7595974d1df3ebf3f3718e2abef1ea5a695812ee630d5043e22d003c", "deploy_tx": "0x1d1c7a5bae307d6d639ffba4400981ff47139ed1687d76deb637b68489658193"},
+    {"label": "localnode_restart", "address": "0x23f5e49569A835d7bf9AefD30e4f60CdD570f225", "bytecode_sha256": "0x648c085f7595974d1df3ebf3f3718e2abef1ea5a695812ee630d5043e22d003c", "deploy_tx": "0x1d1c7a5bae307d6d639ffba4400981ff47139ed1687d76deb637b68489658193"}
+  ]
+}

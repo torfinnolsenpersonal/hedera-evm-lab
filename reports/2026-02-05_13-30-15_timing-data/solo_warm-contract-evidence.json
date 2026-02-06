@@ -1,0 +1,8 @@
+{
+  "label": "solo_warm",
+  "network": "solo",
+  "address": "",
+  "bytecode_sha256": "",
+  "deploy_tx": "",
+  "step_tx_hashes": {}
+}

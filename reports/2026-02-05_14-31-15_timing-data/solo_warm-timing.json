@@ -1,0 +1,17 @@
+{
+  "network": "solo_warm",
+  "timestamp": "2026-02-05T22:33:22Z",
+  "total_duration_ms": 33249,
+  "phases": {
+    "solo_warm_startup": {
+      "duration_ms": 31502,
+      "start_ms": 1770330768992,
+      "end_ms": 1770330800494
+    },
+    "solo_warm_benchmark": {
+      "duration_ms": 1566,
+      "start_ms": 1770330800537,
+      "end_ms": 1770330802103
+    }
+  }
+}
