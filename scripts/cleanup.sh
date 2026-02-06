@@ -141,8 +141,14 @@ stop_solo() {
     fi
 
     # Kill any solo-related background processes
+    # Exclude: benchmark script, docker monitor, caffeinate, and this script's own processes
     local solo_pids
-    solo_pids=$(pgrep -f "solo" 2>/dev/null | grep -v "^$$" || true)
+    solo_pids=$(pgrep -f "solo" 2>/dev/null | \
+        grep -v "^$$" | \
+        grep -v "run-deploy-benchmark" | \
+        grep -v "docker info" | \
+        grep -v "caffeinate" | \
+        grep -v "cleanup.sh" || true)
     if [ -n "$solo_pids" ]; then
         echo -e "${YELLOW}Found solo-related processes: $solo_pids${NC}"
         if [ "$VERIFY_ONLY" = false ]; then
