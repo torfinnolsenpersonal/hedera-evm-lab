@@ -39,6 +39,105 @@ YELLOW='\033[1;33m'
 CYAN='\033[0;36m'
 NC='\033[0m'
 
+# ============================================================================
+# Docker Health Monitoring
+# ============================================================================
+# Ensures Docker stays running during long benchmarks (macOS Docker Desktop
+# has a "Resource Saver" feature that can pause the engine)
+
+DOCKER_MONITOR_PID=""
+DOCKER_MONITOR_LOG=""
+
+# Start a background process that monitors Docker and restarts it if needed
+start_docker_monitor() {
+    DOCKER_MONITOR_LOG="${TIMING_DATA_DIR:-/tmp}/docker-monitor.log"
+
+    (
+        while true; do
+            if ! docker info >/dev/null 2>&1; then
+                echo "[$(date '+%H:%M:%S')] Docker stopped! Attempting restart..." >> "$DOCKER_MONITOR_LOG"
+
+                # Try to restart Docker Desktop on macOS
+                if [[ "$OSTYPE" == "darwin"* ]]; then
+                    open -a Docker 2>/dev/null || true
+                    echo "[$(date '+%H:%M:%S')] Sent open command to Docker.app" >> "$DOCKER_MONITOR_LOG"
+
+                    # Wait for Docker to come back
+                    for i in {1..60}; do
+                        if docker info >/dev/null 2>&1; then
+                            echo "[$(date '+%H:%M:%S')] Docker recovered after ${i}s" >> "$DOCKER_MONITOR_LOG"
+                            break
+                        fi
+                        sleep 1
+                    done
+                fi
+            fi
+            sleep 5
+        done
+    ) &
+    DOCKER_MONITOR_PID=$!
+    echo "[Docker Monitor] Started with PID $DOCKER_MONITOR_PID"
+}
+
+# Stop the Docker monitor
+stop_docker_monitor() {
+    if [ -n "$DOCKER_MONITOR_PID" ] && kill -0 "$DOCKER_MONITOR_PID" 2>/dev/null; then
+        kill "$DOCKER_MONITOR_PID" 2>/dev/null || true
+        echo "[Docker Monitor] Stopped"
+    fi
+}
+
+# ============================================================================
+# Mac Sleep Prevention (caffeinate)
+# ============================================================================
+# Prevents macOS from sleeping during long benchmarks
+
+CAFFEINATE_PID=""
+
+start_caffeinate() {
+    if [[ "$OSTYPE" == "darwin"* ]] && command -v caffeinate &>/dev/null; then
+        # -d: prevent display sleep
+        # -i: prevent idle sleep
+        # -m: prevent disk sleep
+        # -s: prevent system sleep (on AC power)
+        caffeinate -dims &
+        CAFFEINATE_PID=$!
+        echo "[Caffeinate] Started - Mac will stay awake (PID: $CAFFEINATE_PID)"
+    fi
+}
+
+stop_caffeinate() {
+    if [ -n "$CAFFEINATE_PID" ] && kill -0 "$CAFFEINATE_PID" 2>/dev/null; then
+        kill "$CAFFEINATE_PID" 2>/dev/null || true
+        echo "[Caffeinate] Stopped"
+    fi
+}
+
+# Ensure Docker is running before we start
+ensure_docker_running() {
+    if ! docker info >/dev/null 2>&1; then
+        echo -e "${YELLOW}Docker is not running. Attempting to start...${NC}"
+
+        if [[ "$OSTYPE" == "darwin"* ]]; then
+            open -a Docker
+            echo "Waiting for Docker to start..."
+            for i in {1..60}; do
+                if docker info >/dev/null 2>&1; then
+                    echo -e "${GREEN}Docker is now running${NC}"
+                    return 0
+                fi
+                sleep 2
+            done
+            echo -e "${RED}Docker failed to start within 2 minutes${NC}"
+            return 1
+        else
+            echo -e "${RED}Please start Docker manually${NC}"
+            return 1
+        fi
+    fi
+    return 0
+}
+
 # Parse flags
 CLEAN_MODE=true
 WARM_CLUSTER=false
@@ -88,7 +187,14 @@ MODE="${MODE:-anvil}"
 # Create temp directory for outputs
 TIMESTAMP=$(date +"%Y-%m-%d_%H-%M-%S")
 TEMP_DIR=$(mktemp -d)
-trap "rm -rf $TEMP_DIR" EXIT
+
+# Cleanup trap - remove temp dir, stop monitors
+cleanup_on_exit() {
+    stop_docker_monitor
+    stop_caffeinate
+    rm -rf "$TEMP_DIR"
+}
+trap cleanup_on_exit EXIT
 
 mkdir -p "$REPORTS_DIR"
 
@@ -106,6 +212,18 @@ export BENCHMARK_EVIDENCE_DIR="${TIMING_DATA_DIR}"
 # Keys are sanitized labels: solo_1st, anvil, hedera_testnet_2nd, etc.
 kv_set() { eval "${1}_${2}=\${3}"; }
 kv_get() { eval "echo \"\${${1}_${2}:-${3:-}}\""; }
+
+# Ensure Docker is running before we start (for Docker-based networks)
+if ! ensure_docker_running; then
+    echo -e "${RED}Cannot proceed without Docker${NC}"
+    exit 1
+fi
+
+# Start Docker health monitor to prevent Docker Desktop from stopping
+start_docker_monitor
+
+# Keep Mac awake during benchmark (prevents sleep-induced Docker stops)
+start_caffeinate
 
 echo -e "${CYAN}============================================${NC}"
 echo -e "${CYAN}   Deploy Benchmark — Developer Journey${NC}"

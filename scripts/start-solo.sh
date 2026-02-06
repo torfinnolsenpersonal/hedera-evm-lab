@@ -221,10 +221,47 @@ if [ $MIRROR_ATTEMPTS -eq $MIRROR_MAX_ATTEMPTS ]; then
     echo "Contract deployments may fail until mirror node is healthy"
 fi
 
+# Set up GRPC port-forward for HAPI/SDK access (port 50211)
+# This is required for Hedera SDK operations (AccountCreate, TokenCreate, etc.)
+echo ""
+echo "Setting up GRPC port-forward for SDK access..."
+GRPC_PORT="${GRPC_PORT:-50211}"
+
+# Find the consensus node service
+CONSENSUS_SVC=$(kubectl get svc -n "${SOLO_NAMESPACE}" -o name 2>/dev/null | grep -E "network-node.*-svc" | head -1 || echo "")
+
+if [ -n "$CONSENSUS_SVC" ]; then
+    # Kill any existing port-forward on this port
+    pkill -f "port-forward.*${GRPC_PORT}:50211" 2>/dev/null || true
+    sleep 1
+
+    # Start port-forward in background
+    kubectl port-forward -n "${SOLO_NAMESPACE}" "${CONSENSUS_SVC}" ${GRPC_PORT}:50211 >/dev/null 2>&1 &
+    GRPC_PF_PID=$!
+
+    # Store PID for cleanup
+    echo "$GRPC_PF_PID" > /tmp/solo-grpc-portforward.pid
+
+    # Verify port-forward is working
+    sleep 2
+    if kill -0 $GRPC_PF_PID 2>/dev/null; then
+        echo -e "${GREEN}GRPC port-forward active on port ${GRPC_PORT} (PID: ${GRPC_PF_PID})${NC}"
+    else
+        echo -e "${YELLOW}Warning: GRPC port-forward may have failed${NC}"
+        echo "HAPI/SDK operations may not work. Try manually:"
+        echo "  kubectl port-forward -n ${SOLO_NAMESPACE} ${CONSENSUS_SVC} ${GRPC_PORT}:50211"
+    fi
+else
+    echo -e "${YELLOW}Warning: Could not find consensus node service for GRPC port-forward${NC}"
+    echo "HAPI/SDK operations may not work."
+fi
+
 if [ "$TIMING_ENABLED" = "true" ]; then timing_end "solo_health_wait"; fi
 
 echo ""
 echo -e "${GREEN}=== READY ===${NC}"
+echo ""
+echo "GRPC endpoint for SDK:   127.0.0.1:${GRPC_PORT}"
 
 # Export timing data if enabled
 if [ "$TIMING_ENABLED" = "true" ]; then

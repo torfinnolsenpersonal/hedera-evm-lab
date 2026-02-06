@@ -34,6 +34,19 @@ echo -e "${CYAN}=== Stopping Solo Network ===${NC}"
 echo "RPC_PORT=${RPC_PORT}"
 echo ""
 
+# Kill any GRPC port-forward processes
+if [ -f /tmp/solo-grpc-portforward.pid ]; then
+    GRPC_PID=$(cat /tmp/solo-grpc-portforward.pid 2>/dev/null || echo "")
+    if [ -n "$GRPC_PID" ] && kill -0 "$GRPC_PID" 2>/dev/null; then
+        echo "Stopping GRPC port-forward (PID: $GRPC_PID)..."
+        kill "$GRPC_PID" 2>/dev/null || true
+    fi
+    rm -f /tmp/solo-grpc-portforward.pid
+fi
+
+# Also kill any stray port-forward processes for Solo
+pkill -f "port-forward.*50211" 2>/dev/null || true
+
 # Environment variables for Solo
 export SOLO_CLUSTER_NAME="${SOLO_CLUSTER_NAME:-solo}"
 export SOLO_NAMESPACE="${SOLO_NAMESPACE:-solo}"
