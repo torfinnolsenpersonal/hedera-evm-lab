@@ -48,6 +48,32 @@ NC='\033[0m'
 DOCKER_MONITOR_PID=""
 DOCKER_MONITOR_LOG=""
 
+# Start a Docker keep-alive container to prevent Resource Saver from pausing Docker
+DOCKER_KEEPALIVE_CONTAINER="benchmark-keepalive"
+
+start_docker_keepalive() {
+    # Remove any existing keepalive container
+    docker rm -f "$DOCKER_KEEPALIVE_CONTAINER" 2>/dev/null || true
+
+    # Start a lightweight alpine container that runs indefinitely
+    # This prevents Docker Desktop Resource Saver from pausing the engine
+    docker run -d --name "$DOCKER_KEEPALIVE_CONTAINER" \
+        --restart=unless-stopped \
+        alpine:latest \
+        sh -c "while true; do sleep 10; done" >/dev/null 2>&1
+
+    if docker ps -q -f "name=$DOCKER_KEEPALIVE_CONTAINER" | grep -q .; then
+        echo "[Docker Keepalive] Container started - Docker will stay active"
+    else
+        echo "[Docker Keepalive] Warning: Failed to start keepalive container"
+    fi
+}
+
+stop_docker_keepalive() {
+    docker rm -f "$DOCKER_KEEPALIVE_CONTAINER" 2>/dev/null || true
+    echo "[Docker Keepalive] Container stopped"
+}
+
 # Start a background process that monitors Docker and restarts it if needed
 start_docker_monitor() {
     DOCKER_MONITOR_LOG="${TIMING_DATA_DIR:-/tmp}/docker-monitor.log"
@@ -66,6 +92,8 @@ start_docker_monitor() {
                     for i in {1..60}; do
                         if docker info >/dev/null 2>&1; then
                             echo "[$(date '+%H:%M:%S')] Docker recovered after ${i}s" >> "$DOCKER_MONITOR_LOG"
+                            # Restart keepalive container
+                            start_docker_keepalive 2>/dev/null || true
                             break
                         fi
                         sleep 1
@@ -188,9 +216,10 @@ MODE="${MODE:-anvil}"
 TIMESTAMP=$(date +"%Y-%m-%d_%H-%M-%S")
 TEMP_DIR=$(mktemp -d)
 
-# Cleanup trap - remove temp dir, stop monitors
+# Cleanup trap - remove temp dir, stop monitors and keepalive container
 cleanup_on_exit() {
     stop_docker_monitor
+    stop_docker_keepalive
     stop_caffeinate
     rm -rf "$TEMP_DIR"
 }
@@ -219,7 +248,10 @@ if ! ensure_docker_running; then
     exit 1
 fi
 
-# Start Docker health monitor to prevent Docker Desktop from stopping
+# Start Docker keepalive container to prevent Resource Saver from pausing Docker
+start_docker_keepalive
+
+# Start Docker health monitor to detect and recover from Docker stops
 start_docker_monitor
 
 # Keep Mac awake during benchmark (prevents sleep-induced Docker stops)
