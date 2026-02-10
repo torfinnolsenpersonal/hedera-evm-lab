@@ -508,6 +508,713 @@ echo "Shutdown Time: $((END-START)) seconds"
 
 ---
 
+## Step-by-Step Recreation Guide
+
+This section provides complete instructions for recreating all benchmark tests from scratch.
+
+### Prerequisites
+
+Before starting, ensure you have the following installed:
+
+| Tool | Version | Installation |
+|------|---------|--------------|
+| macOS | 14.0+ | N/A |
+| Homebrew | 4.0+ | `/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"` |
+| Docker Desktop | 27.0+ | `brew install --cask docker` |
+| Node.js | 20+ | `brew install node` |
+| kubectl | 1.30+ | `brew install kubectl` |
+| kind | 0.20+ | `brew install kind` |
+| helm | 3.12+ | `brew install helm` |
+
+Verify prerequisites:
+```bash
+docker --version    # Docker version 27.x.x
+node --version      # v25.x.x or v20.x.x
+kubectl version     # Client Version: v1.3x.x
+kind --version      # kind v0.2x.x
+helm version        # v3.1x.x
+```
+
+### Step 1: Install Solo
+
+```bash
+# Add the Hiero Homebrew tap
+brew tap hiero-ledger/tools
+
+# Update Homebrew formulas
+brew update
+
+# Install Solo
+brew install solo
+
+# Verify installation
+solo --version
+# Version: 0.54.0
+```
+
+### Step 2: Start Solo Network
+
+```bash
+# Ensure Docker is running
+docker info
+
+# Deploy Solo network (takes ~8-9 minutes on first run)
+solo one-shot single deploy --quiet-mode
+
+# Verify network is running
+curl -s http://127.0.0.1:7546 -X POST \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","method":"eth_chainId","params":[],"id":1}'
+# Expected: {"jsonrpc":"2.0","id":1,"result":"0x12a"}
+```
+
+### Step 3: Set Up Test Project
+
+Create the Hardhat project structure:
+
+```bash
+# Create project directory
+mkdir -p hedera-benchmark/contracts hedera-benchmark/test
+cd hedera-benchmark
+
+# Initialize npm project
+npm init -y
+```
+
+#### package.json
+
+```json
+{
+  "name": "hedera-benchmark",
+  "version": "1.0.0",
+  "description": "Hedera Solo benchmark tests",
+  "scripts": {
+    "compile": "hardhat compile",
+    "test:evm": "hardhat test test/EVMBenchmark.test.ts --network solo",
+    "test:evm:sub": "hardhat test test/EVMBenchmarkSub.test.ts --network solo",
+    "test:hapi": "hardhat test test/HAPIBenchmark.test.ts --network solo",
+    "test:hapi:sub": "hardhat test test/HAPIBenchmarkSub.test.ts --network solo"
+  },
+  "devDependencies": {
+    "@nomicfoundation/hardhat-toolbox": "^4.0.0",
+    "@types/node": "^20.0.0",
+    "dotenv": "^16.3.0",
+    "hardhat": "^2.19.0",
+    "ts-node": "^10.9.0",
+    "typescript": "^5.3.0"
+  },
+  "dependencies": {
+    "@hashgraph/sdk": "^2.80.0"
+  }
+}
+```
+
+Install dependencies:
+```bash
+npm install
+```
+
+#### tsconfig.json
+
+```json
+{
+  "compilerOptions": {
+    "target": "ES2020",
+    "module": "commonjs",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "outDir": "./dist",
+    "resolveJsonModule": true
+  },
+  "include": ["./scripts", "./test", "./hardhat.config.ts"],
+  "files": ["./hardhat.config.ts"]
+}
+```
+
+#### hardhat.config.ts
+
+```typescript
+import { HardhatUserConfig } from "hardhat/config";
+import "@nomicfoundation/hardhat-toolbox";
+import * as dotenv from "dotenv";
+
+dotenv.config();
+
+// Solo pre-funded ECDSA accounts (created during solo one-shot single deploy)
+// These are the first 5 ECDSA Alias Accounts from Solo's output
+const SOLO_ACCOUNTS = [
+  "0x105d050185ccb907fba04dd92d8de9e32c18305e097ab41dadda21489a211524",
+  "0x2e1d968b041d84dd120a5860cee60cd83f9374ef527ca86996317ada3d0d03e7",
+  "0x45a5a7108a18dd5013cf2d5857a28144beadc9c70b3bdbd914e38df4e804b8d8",
+  "0x6e9d61a325be3f6675cf8b7676c70e4a004d2308e3e182370a41f5653d52c6bd",
+  "0x0b58b1bd44469ac9f813b5aeaf6213ddaea26720f0b2f133d08b6f234130a64f",
+];
+
+const config: HardhatUserConfig = {
+  solidity: {
+    version: "0.8.24",
+    settings: {
+      optimizer: {
+        enabled: true,
+        runs: 200,
+      },
+    },
+  },
+  defaultNetwork: "solo",
+  networks: {
+    solo: {
+      url: process.env.SOLO_RPC_URL || "http://127.0.0.1:7546",
+      accounts: SOLO_ACCOUNTS,
+      chainId: 298, // 0x12a - Hedera local networks
+      timeout: 120000, // 2 minutes for Hedera transactions
+    },
+    hardhat: {
+      chainId: 31337,
+    },
+  },
+};
+
+export default config;
+```
+
+> **Note**: The private keys above are the default ECDSA Alias Accounts created by Solo. They are deterministic and safe to use in local development. For production, never commit private keys.
+
+#### contracts/TestToken.sol
+
+```solidity
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.24;
+
+/**
+ * @title TestToken
+ * @dev ERC-20 token for benchmarking token operations on Hedera EVM
+ */
+contract TestToken {
+    string public name;
+    string public symbol;
+    uint8 public decimals;
+    uint256 public totalSupply;
+
+    mapping(address => uint256) public balanceOf;
+    mapping(address => mapping(address => uint256)) public allowance;
+
+    event Transfer(address indexed from, address indexed to, uint256 value);
+    event Approval(address indexed owner, address indexed spender, uint256 value);
+
+    error InsufficientBalance();
+    error InsufficientAllowance();
+    error ZeroAddress();
+
+    constructor(string memory _name, string memory _symbol, uint256 _initialSupply) {
+        name = _name;
+        symbol = _symbol;
+        decimals = 18;
+        totalSupply = _initialSupply * 10 ** decimals;
+        balanceOf[msg.sender] = totalSupply;
+        emit Transfer(address(0), msg.sender, totalSupply);
+    }
+
+    function transfer(address to, uint256 amount) public returns (bool) {
+        if (to == address(0)) revert ZeroAddress();
+        if (balanceOf[msg.sender] < amount) revert InsufficientBalance();
+
+        balanceOf[msg.sender] -= amount;
+        balanceOf[to] += amount;
+
+        emit Transfer(msg.sender, to, amount);
+        return true;
+    }
+
+    function approve(address spender, uint256 amount) public returns (bool) {
+        if (spender == address(0)) revert ZeroAddress();
+
+        allowance[msg.sender][spender] = amount;
+        emit Approval(msg.sender, spender, amount);
+        return true;
+    }
+
+    function transferFrom(address from, address to, uint256 amount) public returns (bool) {
+        if (to == address(0)) revert ZeroAddress();
+        if (balanceOf[from] < amount) revert InsufficientBalance();
+        if (allowance[from][msg.sender] < amount) revert InsufficientAllowance();
+
+        allowance[from][msg.sender] -= amount;
+        balanceOf[from] -= amount;
+        balanceOf[to] += amount;
+
+        emit Transfer(from, to, amount);
+        return true;
+    }
+
+    function mint(address to, uint256 amount) public {
+        if (to == address(0)) revert ZeroAddress();
+
+        totalSupply += amount;
+        balanceOf[to] += amount;
+        emit Transfer(address(0), to, amount);
+    }
+
+    function burn(uint256 amount) public {
+        if (balanceOf[msg.sender] < amount) revert InsufficientBalance();
+
+        balanceOf[msg.sender] -= amount;
+        totalSupply -= amount;
+        emit Transfer(msg.sender, address(0), amount);
+    }
+}
+```
+
+Compile the contract:
+```bash
+npx hardhat compile
+```
+
+### Step 4: Create EVM Benchmark Test
+
+#### test/EVMBenchmark.test.ts
+
+```typescript
+import { expect } from "chai";
+import { ethers, network } from "hardhat";
+
+// Token amounts (using 18 decimals)
+const INITIAL_MINT = ethers.parseEther("10000");
+const TRANSFER_AMOUNT = ethers.parseEther("1000");
+
+interface StepTiming {
+  step: string;
+  durationMs: number;
+}
+
+const stepTimings: StepTiming[] = [];
+
+function recordStep(step: string, startMs: number): void {
+  stepTimings.push({ step, durationMs: Date.now() - startMs });
+}
+
+describe("EVM Benchmark", function () {
+  this.timeout(120000); // 2 minutes
+
+  let token: any;
+  let accounts: any[];
+  let addresses: string[];
+
+  before(async function () {
+    console.log("\n╔══════════════════════════════════════════════════════════╗");
+    console.log(`║         EVM BENCHMARK - ${network.name.padEnd(31)}║`);
+    console.log("╚══════════════════════════════════════════════════════════╝\n");
+
+    // Get exactly 3 accounts (pre-funded by Solo)
+    const allSigners = await ethers.getSigners();
+    accounts = allSigners.slice(0, 3);
+    addresses = await Promise.all(accounts.map(a => a.getAddress()));
+
+    console.log("Accounts:");
+    for (let i = 0; i < 3; i++) {
+      console.log(`  [${i}] ${addresses[i]}`);
+    }
+  });
+
+  after(function () {
+    const totalMs = stepTimings.reduce((sum, s) => sum + s.durationMs, 0);
+    const formatSec = (ms: number) => (ms / 1000).toFixed(1) + "s";
+
+    console.log("\n╔══════════════════════════════════════════════════════════╗");
+    console.log("║         EVM BENCHMARK RESULTS                            ║");
+    console.log("╠══════════════════════════════════════════════════════════╣");
+    for (const s of stepTimings) {
+      console.log(`║  ${s.step.padEnd(38)}${formatSec(s.durationMs).padStart(8)} ║`);
+    }
+    console.log("╠══════════════════════════════════════════════════════════╣");
+    console.log(`║  TOTAL${" ".repeat(34)}${formatSec(totalMs).padStart(8)} ║`);
+    console.log("╚══════════════════════════════════════════════════════════╝\n");
+  });
+
+  it("Step 1: Deploy ERC20 contract", async function () {
+    const start = Date.now();
+
+    const TestToken = await ethers.getContractFactory("TestToken");
+    token = await TestToken.deploy("Benchmark Token", "BENCH", 0);
+    await token.waitForDeployment();
+
+    // Wait for mirror node sync
+    await new Promise(resolve => setTimeout(resolve, 2500));
+
+    recordStep("Deploy ERC20", start);
+    expect(await token.getAddress()).to.be.properAddress;
+  });
+
+  it("Step 2: Mint tokens to account[0]", async function () {
+    const start = Date.now();
+
+    const tx = await token.mint(addresses[0], INITIAL_MINT);
+    await tx.wait();
+    await new Promise(resolve => setTimeout(resolve, 2500));
+
+    recordStep("Mint tokens", start);
+    expect(await token.balanceOf(addresses[0])).to.equal(INITIAL_MINT);
+  });
+
+  it("Step 3: Transfer to account[1]", async function () {
+    const start = Date.now();
+
+    const tx = await token.connect(accounts[0]).transfer(addresses[1], TRANSFER_AMOUNT);
+    await tx.wait();
+    await new Promise(resolve => setTimeout(resolve, 2500));
+
+    recordStep("Transfer to acc[1]", start);
+  });
+
+  it("Step 4: Transfer to account[2]", async function () {
+    const start = Date.now();
+
+    const tx = await token.connect(accounts[0]).transfer(addresses[2], TRANSFER_AMOUNT);
+    await tx.wait();
+    await new Promise(resolve => setTimeout(resolve, 2500));
+
+    recordStep("Transfer to acc[2]", start);
+  });
+
+  it("Step 5: eth_call confirms final balances", async function () {
+    const start = Date.now();
+
+    const bal0 = await token.balanceOf(addresses[0]);
+    const bal1 = await token.balanceOf(addresses[1]);
+    const bal2 = await token.balanceOf(addresses[2]);
+
+    expect(bal0).to.equal(ethers.parseEther("8000"));
+    expect(bal1).to.equal(ethers.parseEther("1000"));
+    expect(bal2).to.equal(ethers.parseEther("1000"));
+
+    recordStep("Confirm balances", start);
+
+    console.log("\nFinal balances:");
+    console.log(`  account[0]: ${ethers.formatEther(bal0)} BENCH`);
+    console.log(`  account[1]: ${ethers.formatEther(bal1)} BENCH`);
+    console.log(`  account[2]: ${ethers.formatEther(bal2)} BENCH`);
+  });
+});
+```
+
+### Step 5: Create HAPI Benchmark Test
+
+#### test/HAPIBenchmark.test.ts
+
+```typescript
+import { expect } from "chai";
+import {
+  Client,
+  AccountCreateTransaction,
+  TokenCreateTransaction,
+  TokenMintTransaction,
+  TransferTransaction,
+  TokenAssociateTransaction,
+  AccountBalanceQuery,
+  PrivateKey,
+  Hbar,
+  TokenType,
+  TokenSupplyType,
+} from "@hashgraph/sdk";
+
+// Solo network configuration
+const SOLO_CONFIG = {
+  grpcEndpoint: "127.0.0.1:50211",
+  nodeAccountId: "0.0.3",
+  operatorId: "0.0.2",
+  operatorKey: "302e020100300506032b65700422042091132178e72057a1d7528025956fe39b0b847f200ab59b2fdd367017f3087137",
+  mirrorNodeUrl: "http://127.0.0.1:8081",
+};
+
+interface StepTiming {
+  step: string;
+  durationMs: number;
+}
+
+const stepTimings: StepTiming[] = [];
+
+function recordStep(step: string, startMs: number): void {
+  stepTimings.push({ step, durationMs: Date.now() - startMs });
+}
+
+describe("HAPI Benchmark", function () {
+  this.timeout(180000); // 3 minutes
+
+  let client: Client;
+  let accounts: { id: string; key: PrivateKey }[] = [];
+  let tokenId: string;
+
+  before(async function () {
+    console.log("\n╔══════════════════════════════════════════════════════════╗");
+    console.log("║         HAPI BENCHMARK - Solo                            ║");
+    console.log("╠══════════════════════════════════════════════════════════╣");
+    console.log(`║  GRPC: ${SOLO_CONFIG.grpcEndpoint.padEnd(48)}║`);
+    console.log(`║  Operator: ${SOLO_CONFIG.operatorId.padEnd(44)}║`);
+    console.log("╚══════════════════════════════════════════════════════════╝\n");
+
+    const network: Record<string, string> = {};
+    network[SOLO_CONFIG.grpcEndpoint] = SOLO_CONFIG.nodeAccountId;
+
+    client = Client.forNetwork(network);
+    client.setOperator(
+      SOLO_CONFIG.operatorId,
+      PrivateKey.fromStringED25519(SOLO_CONFIG.operatorKey)
+    );
+  });
+
+  after(async function () {
+    if (client) client.close();
+
+    const totalMs = stepTimings.reduce((sum, s) => sum + s.durationMs, 0);
+    const formatSec = (ms: number) => (ms / 1000).toFixed(1) + "s";
+
+    console.log("\n╔══════════════════════════════════════════════════════════╗");
+    console.log("║         HAPI BENCHMARK RESULTS                           ║");
+    console.log("╠══════════════════════════════════════════════════════════╣");
+    for (const s of stepTimings) {
+      console.log(`║  ${s.step.padEnd(38)}${formatSec(s.durationMs).padStart(8)} ║`);
+    }
+    console.log("╠══════════════════════════════════════════════════════════╣");
+    console.log(`║  TOTAL${" ".repeat(34)}${formatSec(totalMs).padStart(8)} ║`);
+    console.log("╚══════════════════════════════════════════════════════════╝\n");
+  });
+
+  it("Step 1: Create 3 accounts", async function () {
+    const start = Date.now();
+
+    for (let i = 0; i < 3; i++) {
+      const key = PrivateKey.generateED25519();
+      const tx = await new AccountCreateTransaction()
+        .setKey(key.publicKey)
+        .setInitialBalance(new Hbar(100))
+        .execute(client);
+
+      const receipt = await tx.getReceipt(client);
+      accounts.push({ id: receipt.accountId!.toString(), key });
+      console.log(`  Created account[${i}]: ${receipt.accountId}`);
+    }
+
+    recordStep("Create 3 accounts", start);
+    expect(accounts.length).to.equal(3);
+  });
+
+  it("Step 2: Create FT token", async function () {
+    const start = Date.now();
+
+    const tx = await new TokenCreateTransaction()
+      .setTokenName("Benchmark Token")
+      .setTokenSymbol("BENCH")
+      .setDecimals(2)
+      .setInitialSupply(0)
+      .setTreasuryAccountId(accounts[0].id)
+      .setSupplyType(TokenSupplyType.Infinite)
+      .setTokenType(TokenType.FungibleCommon)
+      .setSupplyKey(accounts[0].key.publicKey)
+      .freezeWith(client)
+      .sign(accounts[0].key);
+
+    const response = await tx.execute(client);
+    const receipt = await response.getReceipt(client);
+    tokenId = receipt.tokenId!.toString();
+
+    console.log(`  Created token: ${tokenId}`);
+
+    recordStep("Create FT token", start);
+    expect(tokenId).to.match(/^\d+\.\d+\.\d+$/);
+  });
+
+  it("Step 3: Associate token with accounts 1 and 2", async function () {
+    const start = Date.now();
+
+    for (let i = 1; i <= 2; i++) {
+      const tx = await new TokenAssociateTransaction()
+        .setAccountId(accounts[i].id)
+        .setTokenIds([tokenId])
+        .freezeWith(client)
+        .sign(accounts[i].key);
+      await (await tx.execute(client)).getReceipt(client);
+    }
+
+    console.log(`  Associated token with accounts 1 and 2`);
+    recordStep("Associate token", start);
+  });
+
+  it("Step 4: Mint tokens", async function () {
+    const start = Date.now();
+
+    const tx = await new TokenMintTransaction()
+      .setTokenId(tokenId)
+      .setAmount(10000) // 100.00 tokens
+      .freezeWith(client)
+      .sign(accounts[0].key);
+
+    const response = await tx.execute(client);
+    const receipt = await response.getReceipt(client);
+
+    console.log(`  Minted ${receipt.totalSupply} tokens`);
+    recordStep("Mint tokens", start);
+  });
+
+  it("Step 5: Transfer tokens", async function () {
+    const start = Date.now();
+
+    const tx = await new TransferTransaction()
+      .addTokenTransfer(tokenId, accounts[0].id, -2000)
+      .addTokenTransfer(tokenId, accounts[1].id, 1000)
+      .addTokenTransfer(tokenId, accounts[2].id, 1000)
+      .freezeWith(client)
+      .sign(accounts[0].key);
+
+    await (await tx.execute(client)).getReceipt(client);
+
+    console.log(`  Transferred tokens to accounts 1 and 2`);
+    recordStep("Transfer tokens", start);
+  });
+
+  it("Step 6: Mirror node confirms balances", async function () {
+    const start = Date.now();
+
+    // Wait for mirror node
+    await new Promise(resolve => setTimeout(resolve, 3000));
+
+    const fetchBalance = async (accountId: string): Promise<number> => {
+      const url = `${SOLO_CONFIG.mirrorNodeUrl}/api/v1/accounts/${accountId}/tokens?token.id=${tokenId}`;
+      const response = await fetch(url);
+      const data = await response.json() as { tokens?: { balance?: number }[] };
+      return data.tokens?.[0]?.balance ?? 0;
+    };
+
+    const bal0 = await fetchBalance(accounts[0].id);
+    const bal1 = await fetchBalance(accounts[1].id);
+    const bal2 = await fetchBalance(accounts[2].id);
+
+    console.log("\n  Mirror node balances:");
+    console.log(`    account[0]: ${bal0 / 100} BENCH`);
+    console.log(`    account[1]: ${bal1 / 100} BENCH`);
+    console.log(`    account[2]: ${bal2 / 100} BENCH`);
+
+    recordStep("Mirror confirm", start);
+
+    expect(bal0).to.equal(8000);
+    expect(bal1).to.equal(1000);
+    expect(bal2).to.equal(1000);
+  });
+
+  it("Step 7: SDK query confirms balances", async function () {
+    const start = Date.now();
+
+    const query0 = await new AccountBalanceQuery().setAccountId(accounts[0].id).execute(client);
+    const query1 = await new AccountBalanceQuery().setAccountId(accounts[1].id).execute(client);
+    const query2 = await new AccountBalanceQuery().setAccountId(accounts[2].id).execute(client);
+
+    const sdkBal0 = query0.tokens?.get(tokenId)?.toNumber() ?? 0;
+    const sdkBal1 = query1.tokens?.get(tokenId)?.toNumber() ?? 0;
+    const sdkBal2 = query2.tokens?.get(tokenId)?.toNumber() ?? 0;
+
+    console.log("\n  SDK query balances:");
+    console.log(`    account[0]: ${sdkBal0 / 100} BENCH`);
+    console.log(`    account[1]: ${sdkBal1 / 100} BENCH`);
+    console.log(`    account[2]: ${sdkBal2 / 100} BENCH`);
+
+    recordStep("SDK query confirm", start);
+
+    expect(sdkBal0).to.equal(8000);
+    expect(sdkBal1).to.equal(1000);
+    expect(sdkBal2).to.equal(1000);
+  });
+});
+```
+
+### Step 6: Run the Benchmarks
+
+```bash
+# Ensure Solo is running
+curl -s http://127.0.0.1:7546 -X POST \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","method":"eth_chainId","params":[],"id":1}'
+
+# Run EVM benchmark (~40 seconds)
+npx hardhat test test/EVMBenchmark.test.ts --network solo
+
+# Run HAPI benchmark (~6 seconds)
+npx hardhat test test/HAPIBenchmark.test.ts --network solo
+```
+
+### Step 7: Shutdown Solo
+
+```bash
+# Destroy Solo network (keeps kind cluster)
+solo one-shot single destroy --quiet-mode
+
+# Verify shutdown
+kubectl get ns | grep solo
+# Should show no solo namespaces (except possibly solo-setup)
+```
+
+### Expected Output
+
+#### EVM Benchmark
+```
+╔══════════════════════════════════════════════════════════╗
+║         EVM BENCHMARK RESULTS                            ║
+╠══════════════════════════════════════════════════════════╣
+║  Deploy ERC20                                    13.7s ║
+║  Mint tokens                                      8.2s ║
+║  Transfer to acc[1]                               8.0s ║
+║  Transfer to acc[2]                               8.0s ║
+║  Confirm balances                                 0.3s ║
+╠══════════════════════════════════════════════════════════╣
+║  TOTAL                                           38.2s ║
+╚══════════════════════════════════════════════════════════╝
+```
+
+#### HAPI Benchmark
+```
+╔══════════════════════════════════════════════════════════╗
+║         HAPI BENCHMARK RESULTS                           ║
+╠══════════════════════════════════════════════════════════╣
+║  Create 3 accounts                                0.9s ║
+║  Create FT token                                  0.4s ║
+║  Associate token                                  0.5s ║
+║  Mint tokens                                      0.3s ║
+║  Transfer tokens                                  0.3s ║
+║  Mirror confirm                                   3.1s ║
+║  SDK query confirm                                0.0s ║
+╠══════════════════════════════════════════════════════════╣
+║  TOTAL                                            5.4s ║
+╚══════════════════════════════════════════════════════════╝
+```
+
+### Troubleshooting
+
+| Issue | Solution |
+|-------|----------|
+| `ECONNREFUSED 127.0.0.1:7546` | Solo is not running. Run `solo one-shot single deploy --quiet-mode` |
+| `ECONNREFUSED 127.0.0.1:50211` | gRPC port-forward died. Check `kubectl get pods -A` and restart Solo |
+| `insufficient gas` | Increase gas limit in hardhat.config.ts or wait longer between transactions |
+| `INVALID_SIGNATURE` | Account keys don't match. Ensure using Solo's default ECDSA accounts |
+| `no space left on device` | Run `docker system prune -af --volumes` to free Docker disk space |
+| `ImagePullBackOff` | Docker disk full. Free at least 20GB and restart Solo |
+
+### Project Structure Summary
+
+```
+hedera-benchmark/
+├── contracts/
+│   └── TestToken.sol          # ERC-20 contract for EVM tests
+├── test/
+│   ├── EVMBenchmark.test.ts   # EVM test (uses pre-funded accounts)
+│   ├── EVMBenchmarkSub.test.ts # EVM sub-test (creates new accounts)
+│   ├── HAPIBenchmark.test.ts  # HAPI test with SDK + mirror confirm
+│   └── HAPIBenchmarkSub.test.ts # HAPI sub-test (mirror only)
+├── hardhat.config.ts          # Hardhat configuration for Solo
+├── package.json               # Dependencies
+└── tsconfig.json              # TypeScript configuration
+```
+
+---
+
 ## Appendix: Raw Test Output
 
 ### EVM Benchmark Results
