@@ -18,6 +18,8 @@
 | **Shutdown Time** | 125 seconds (2m 5s) | PASS |
 | **EVM Test Run** | 40 seconds | PASS |
 | **HAPI Test Run** | 6 seconds | PASS |
+| **EVM Sub-Test** | 41 seconds | PASS |
+| **HAPI Sub-Test** | 5 seconds | PASS |
 
 > **Note**: Install Time and Cold Start Time are measured separately. Warm Start assumes network is running but port-forwards need to be re-established (e.g., after closing terminal).
 
@@ -171,6 +173,77 @@ solo one-shot single destroy --quiet-mode
 **Network Configuration**:
 - Default wait after transaction: 2,500ms (allows mirror node sync)
 - Test timeout: 120,000ms (2 minutes)
+
+### HAPI Sub-Test
+**Definition**: Create 3 accounts, Create FT Token, Mint Token, Transfer token. All tests run sequentially after confirmation in mirror node.
+
+**Solo Method**: `npx hardhat test test/HAPIBenchmarkSub.test.ts --network solo`
+
+**Test Context**:
+- **Framework**: Mocha test runner (via Hardhat) with @hashgraph/sdk
+- **Connection**: gRPC directly to consensus node on port 50211
+- **Confirmation**: All balances confirmed via Mirror Node REST API only (no SDK query step)
+- **Test File**: `examples/hardhat/contract-smoke/test/HAPIBenchmarkSub.test.ts`
+
+**What was measured**: Using the Hedera SDK (@hashgraph/sdk) directly via gRPC:
+
+| Step | Description | Hedera Transaction |
+|------|-------------|-------------------|
+| 1. Create 3 accounts | Create new accounts with ED25519 keys, 100 HBAR each | `AccountCreateTransaction` x3 |
+| 2. Create FT token | Create "Benchmark Token" (BENCH) with 2 decimals, infinite supply | `TokenCreateTransaction` |
+| 3. Associate token | Associate BENCH token with accounts 1 and 2 | `TokenAssociateTransaction` x2 |
+| 4. Mint tokens | Mint 10,000 units (100.00 BENCH) to treasury (account[0]) | `TokenMintTransaction` |
+| 5. Transfer tokens | Transfer 1,000 units to account[1] and 1,000 to account[2] | `TransferTransaction` |
+| 6. Mirror node confirm | Wait for mirror node, confirm all 3 balances via REST API | HTTP GET to mirror node |
+
+**Timing Results**:
+| Step | Duration |
+|------|----------|
+| Create 3 accounts | 0.8s |
+| Create FT token | 0.3s |
+| Associate token | 0.5s |
+| Mint tokens | 0.5s |
+| Transfer tokens | 0.3s |
+| Mirror node confirm | 2.1s |
+| **TOTAL** | **4.6s** |
+
+### EVM Sub-Test
+**Definition**: Create 3 accounts, Deploy ERC20 contract, Mint Token, Transfer Token. All tests run sequentially after confirmation from eth_call.
+
+**Solo Method**: `npx hardhat test test/EVMBenchmarkSub.test.ts --network solo`
+
+**Test Context**:
+- **Framework**: Hardhat with ethers.js + @hashgraph/sdk (for account creation)
+- **Connection**: gRPC (port 50211) for account creation, JSON-RPC relay (port 7546) for EVM operations
+- **Accounts**: 3 NEW ECDSA accounts created via Hedera SDK (not pre-funded accounts)
+- **Contract**: `TestToken.sol` - A basic ERC-20 implementation
+- **Test File**: `examples/hardhat/contract-smoke/test/EVMBenchmarkSub.test.ts`
+
+**What was measured**: Account creation via HAPI, then EVM operations via JSON-RPC:
+
+| Step | Description | Operation |
+|------|-------------|-----------|
+| 1. Create 3 accounts | Create ECDSA accounts via Hedera SDK, fund with 1000 HBAR each | `AccountCreateTransaction` x3 |
+| 2. Deploy ERC20 | Deploy TestToken contract using new account[0] | `ContractCreateTransaction` via relay |
+| 3. Mint tokens | Mint 10,000 BENCH (18 decimals) to account[0] | `ContractCallTransaction` via relay |
+| 4. Transfer to account[1] | Transfer 1,000 BENCH from account[0] to account[1] | `ContractCallTransaction` via relay |
+| 5. Transfer to account[2] | Transfer 1,000 BENCH from account[0] to account[2] | `ContractCallTransaction` via relay |
+| 6. Verify balances | Call `balanceOf()` for all 3 accounts | `eth_call` (read-only) |
+
+**Timing Results**:
+| Step | Duration |
+|------|----------|
+| Create 3 accounts | 5.9s |
+| Deploy ERC20 | 14.0s |
+| Mint tokens | 7.1s |
+| Transfer to acc[1] | 6.8s |
+| Transfer to acc[2] | 7.0s |
+| Confirm balances | 0.3s |
+| **TOTAL** | **41.1s** |
+
+**Key Difference from EVM Test Run**:
+- Creates new accounts via HAPI first (adds ~6s overhead)
+- Uses freshly created ECDSA accounts instead of pre-funded accounts from Solo startup
 
 ---
 
