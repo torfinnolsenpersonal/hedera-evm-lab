@@ -12,8 +12,8 @@
 
 | Metric | Time | Status |
 |--------|------|--------|
-| **Install Time** | 39 seconds | PASS |
-| **Cold Start Time** | 569 seconds (9m 29s) | PASS |
+| **Install Time** | 61 seconds | PASS |
+| **Cold Start Time** | 591 seconds (9m 51s) | PASS |
 | **Warm Start Time** | N/A | NOT SUPPORTED |
 | **Shutdown Time** | <1 second | PASS |
 | **EVM Test Run** | 40 seconds | PASS |
@@ -28,18 +28,38 @@
 ### Install Time
 **Definition**: Time from a completely clean machine (no Docker images, no node_modules) to "ready to start" state.
 
-**Solo Method**: `brew reinstall solo`
+**Solo Method**:
+```bash
+brew tap hiero-ledger/tools
+brew update
+brew install solo
+```
 
-**What was measured**: The time to reinstall Solo via Homebrew, which downloads and installs the Solo CLI and all its dependencies. This simulates a developer setting up Solo on a fresh machine.
+**What was measured**: The complete installation process on a machine that has never had Solo installed:
+1. Add the Hiero Homebrew tap
+2. Update Homebrew formulas
+3. Install Solo and its dependencies (sqlite, zstd, node)
+
+This simulates a developer setting up Solo on a completely fresh machine.
 
 ### Cold Start Time
-**Definition**: Time from a machine with no Solo installed, through `brew install solo`, to `solo one-shot single deploy` completing with SDK transaction-ready state. This includes the install time as the first step.
+**Definition**: Time from a machine with no Solo installed, through full installation, to `solo one-shot single deploy` completing with SDK transaction-ready state. This includes the install time as the first step.
 
-**Solo Method**: `brew install solo && solo one-shot single deploy --quiet-mode`
+**Solo Method**:
+```bash
+brew tap hiero-ledger/tools
+brew update
+brew install solo
+solo one-shot single deploy --quiet-mode
+```
 
 **What was measured**: Starting from a machine with no Solo CLI installed and a completely clean Docker environment (no images, no volumes, no kind cluster):
 
-1. **Install Phase (39s)**: `brew install solo` - download and install Solo CLI
+1. **Install Phase (61s)**:
+   - `brew tap hiero-ledger/tools` - Add Hiero tap
+   - `brew update` - Update Homebrew formulas
+   - `brew install solo` - Install Solo CLI and dependencies
+
 2. **Network Startup Phase (530s)**:
    - Create a kind Kubernetes cluster
    - Deploy the consensus node (Hedera network node)
@@ -49,7 +69,7 @@
    - Create 30 test accounts
    - Establish port-forwards for all services
 
-**Total Cold Start Time**: 39s + 530s = **569 seconds (9m 29s)**
+**Total Cold Start Time**: 61s + 530s = **591 seconds (9m 51s)**
 
 The measurement ends when all services are healthy and SDK transactions can be executed.
 
@@ -105,21 +125,38 @@ The measurement ends when all services are healthy and SDK transactions can be e
 
 ## Detailed Timing Breakdown
 
-### Install Time: 39 seconds
+### Install Time: 61 seconds
 
-```
-brew reinstall solo
-==> Reinstalling hiero-ledger/tools/solo
-🍺 /opt/homebrew/Cellar/solo/0.54.0: 27,049 files, 261.4MB, built in 31 seconds
+```bash
+brew tap hiero-ledger/tools
+# Tapped 9 formulae
+
+brew update
+# Already up-to-date
+
+brew install solo
+# ==> Installing dependencies for hiero-ledger/tools/solo: sqlite, zstd and node
+# ==> Installing hiero-ledger/tools/solo
+# 🍺 /opt/homebrew/Cellar/solo/0.54.0: 27,049 files, 261.4MB, built in 37 seconds
 ```
 
-### Cold Start Time: 569 seconds (9m 29s)
+| Step | Duration | Description |
+|------|----------|-------------|
+| brew tap | ~5s | Add hiero-ledger/tools tap |
+| brew update | ~3s | Update Homebrew formulas |
+| Install dependencies | ~16s | sqlite, zstd, node |
+| Install Solo | ~37s | Solo CLI via npm |
+| **Total** | **61s** | |
+
+### Cold Start Time: 591 seconds (9m 51s)
 
 | Phase | Duration | Description |
 |-------|----------|-------------|
-| **INSTALL PHASE** | | |
-| brew install solo | 39s | Download and install Solo CLI via Homebrew |
-| **NETWORK STARTUP PHASE** | | |
+| **INSTALL PHASE** | **61s** | |
+| brew tap | ~5s | Add hiero-ledger/tools tap |
+| brew update | ~3s | Update Homebrew formulas |
+| brew install solo | ~53s | Install Solo CLI + dependencies (sqlite, zstd, node) |
+| **NETWORK STARTUP PHASE** | **530s** | |
 | Dependencies check | 0.3s | Verify helm, kubectl, kind |
 | Chart manager setup | 5s | Initialize Helm chart manager |
 | Kind cluster creation | 43s | Create Kubernetes cluster in Docker |
@@ -133,7 +170,7 @@ brew reinstall solo
 | Explorer add | 20s | Deploy Hedera explorer |
 | Relay add | 51s | Deploy JSON-RPC relay |
 | Account creation | 16s | Create 30 test accounts |
-| **TOTAL** | **569s** | Install (39s) + Network Startup (530s) |
+| **TOTAL** | **591s** | Install (61s) + Network Startup (530s) |
 
 ### EVM Test Run: 40 seconds
 
@@ -252,13 +289,28 @@ To reproduce these benchmarks:
 
 ```bash
 # Clean environment (simulate fresh machine)
+brew untap hiero-ledger/tools 2>/dev/null || true
 brew uninstall solo 2>/dev/null || true
 docker system prune -af --volumes
 kind delete clusters --all
 
-# COLD START - measure from install through SDK-ready
-# This should take ~569 seconds (9m 29s)
+# INSTALL TIME - measure tap + update + install (~61s)
 START=$(date +%s)
+brew tap hiero-ledger/tools
+brew update
+brew install solo
+END=$(date +%s)
+echo "Install Time: $((END-START)) seconds"
+
+# COLD START - measure from install through SDK-ready
+# Reset for full cold start measurement (~591 seconds / 9m 51s)
+brew untap hiero-ledger/tools
+brew uninstall solo
+docker system prune -af --volumes
+
+START=$(date +%s)
+brew tap hiero-ledger/tools
+brew update
 brew install solo
 solo one-shot single deploy --quiet-mode
 END=$(date +%s)
@@ -275,7 +327,7 @@ npx hardhat test test/HAPIBenchmark.test.ts --network solo
 kind delete cluster --name solo-cluster
 ```
 
-**Note**: For measuring Install Time separately, time just the `brew install solo` command (39s). Cold Start Time includes both install and network startup (569s total).
+**Note**: Install Time (61s) is the full `brew tap` + `brew update` + `brew install solo` sequence. Cold Start Time (591s) includes both install and network startup.
 
 ---
 
