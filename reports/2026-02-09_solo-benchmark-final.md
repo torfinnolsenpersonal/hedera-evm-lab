@@ -13,11 +13,13 @@
 | Metric | Time | Status |
 |--------|------|--------|
 | **Install Time** | 39 seconds | PASS |
-| **Cold Start Time** | 530 seconds (8m 50s) | PASS |
+| **Cold Start Time** | 569 seconds (9m 29s) | PASS |
 | **Warm Start Time** | N/A | NOT SUPPORTED |
 | **Shutdown Time** | <1 second | PASS |
 | **EVM Test Run** | 40 seconds | PASS |
 | **HAPI Test Run** | 6 seconds | PASS |
+
+> **Note**: Cold Start Time includes Install Time. It measures the complete developer journey from a machine with no Solo installed to SDK transaction-ready.
 
 ---
 
@@ -31,18 +33,23 @@
 **What was measured**: The time to reinstall Solo via Homebrew, which downloads and installs the Solo CLI and all its dependencies. This simulates a developer setting up Solo on a fresh machine.
 
 ### Cold Start Time
-**Definition**: Time from Solo one-shot start with no existing volumes (fresh database, genesis blockchain state) to SDK transaction-ready.
+**Definition**: Time from a machine with no Solo installed, through `brew install solo`, to `solo one-shot single deploy` completing with SDK transaction-ready state. This includes the install time as the first step.
 
-**Solo Method**: `solo one-shot single deploy --quiet-mode`
+**Solo Method**: `brew install solo && solo one-shot single deploy --quiet-mode`
 
-**What was measured**: Starting from a completely clean Docker environment (no images, no volumes, no kind cluster), the time for Solo to:
-1. Create a kind Kubernetes cluster
-2. Deploy the consensus node (Hedera network node)
-3. Deploy the mirror node (REST API, gRPC, importer)
-4. Deploy the JSON-RPC relay
-5. Deploy the explorer
-6. Create 30 test accounts
-7. Establish port-forwards for all services
+**What was measured**: Starting from a machine with no Solo CLI installed and a completely clean Docker environment (no images, no volumes, no kind cluster):
+
+1. **Install Phase (39s)**: `brew install solo` - download and install Solo CLI
+2. **Network Startup Phase (530s)**:
+   - Create a kind Kubernetes cluster
+   - Deploy the consensus node (Hedera network node)
+   - Deploy the mirror node (REST API, gRPC, importer)
+   - Deploy the JSON-RPC relay
+   - Deploy the explorer
+   - Create 30 test accounts
+   - Establish port-forwards for all services
+
+**Total Cold Start Time**: 39s + 530s = **569 seconds (9m 29s)**
 
 The measurement ends when all services are healthy and SDK transactions can be executed.
 
@@ -106,10 +113,13 @@ brew reinstall solo
 🍺 /opt/homebrew/Cellar/solo/0.54.0: 27,049 files, 261.4MB, built in 31 seconds
 ```
 
-### Cold Start Time: 530 seconds (8m 50s)
+### Cold Start Time: 569 seconds (9m 29s)
 
 | Phase | Duration | Description |
 |-------|----------|-------------|
+| **INSTALL PHASE** | | |
+| brew install solo | 39s | Download and install Solo CLI via Homebrew |
+| **NETWORK STARTUP PHASE** | | |
 | Dependencies check | 0.3s | Verify helm, kubectl, kind |
 | Chart manager setup | 5s | Initialize Helm chart manager |
 | Kind cluster creation | 43s | Create Kubernetes cluster in Docker |
@@ -123,7 +133,7 @@ brew reinstall solo
 | Explorer add | 20s | Deploy Hedera explorer |
 | Relay add | 51s | Deploy JSON-RPC relay |
 | Account creation | 16s | Create 30 test accounts |
-| **Total** | **530s** | |
+| **TOTAL** | **569s** | Install (39s) + Network Startup (530s) |
 
 ### EVM Test Run: 40 seconds
 
@@ -241,15 +251,18 @@ no space left on device
 To reproduce these benchmarks:
 
 ```bash
-# Clean environment
+# Clean environment (simulate fresh machine)
+brew uninstall solo 2>/dev/null || true
 docker system prune -af --volumes
 kind delete clusters --all
 
-# Install Solo
-brew reinstall solo
-
-# Cold start (measure this)
-time solo one-shot single deploy --quiet-mode
+# COLD START - measure from install through SDK-ready
+# This should take ~569 seconds (9m 29s)
+START=$(date +%s)
+brew install solo
+solo one-shot single deploy --quiet-mode
+END=$(date +%s)
+echo "Cold Start Time: $((END-START)) seconds"
 
 # Run EVM test
 cd examples/hardhat/contract-smoke
@@ -261,6 +274,8 @@ npx hardhat test test/HAPIBenchmark.test.ts --network solo
 # Shutdown
 kind delete cluster --name solo-cluster
 ```
+
+**Note**: For measuring Install Time separately, time just the `brew install solo` command (39s). Cold Start Time includes both install and network startup (569s total).
 
 ---
 
