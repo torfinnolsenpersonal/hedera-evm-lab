@@ -13,13 +13,13 @@
 | Metric | Time | Status |
 |--------|------|--------|
 | **Install Time** | 61 seconds | PASS |
-| **Cold Start Time** | 591 seconds (9m 51s) | PASS |
+| **Cold Start Time** | 530 seconds (8m 50s) | PASS |
 | **Warm Start Time** | N/A | NOT SUPPORTED |
 | **Shutdown Time** | <1 second | PASS |
 | **EVM Test Run** | 40 seconds | PASS |
 | **HAPI Test Run** | 6 seconds | PASS |
 
-> **Note**: Cold Start Time includes Install Time. It measures the complete developer journey from a machine with no Solo installed to SDK transaction-ready.
+> **Note**: Install Time and Cold Start Time are measured separately. Install gets Solo ready; Cold Start measures network startup assuming Solo is already installed.
 
 ---
 
@@ -43,33 +43,23 @@ brew install solo
 This simulates a developer setting up Solo on a completely fresh machine.
 
 ### Cold Start Time
-**Definition**: Time from a machine with no Solo installed, through full installation, to `solo one-shot single deploy` completing with SDK transaction-ready state. This includes the install time as the first step.
+**Definition**: Time from `solo one-shot single deploy` with no existing volumes (fresh database, genesis blockchain state) to SDK transaction-ready. Assumes Solo is already installed.
 
 **Solo Method**:
 ```bash
-brew tap hiero-ledger/tools
-brew update
-brew install solo
 solo one-shot single deploy --quiet-mode
 ```
 
-**What was measured**: Starting from a machine with no Solo CLI installed and a completely clean Docker environment (no images, no volumes, no kind cluster):
+**What was measured**: Starting from a completely clean Docker environment (no images, no volumes, no kind cluster), with Solo CLI already installed, the time for Solo to:
+1. Create a kind Kubernetes cluster
+2. Deploy the consensus node (Hedera network node)
+3. Deploy the mirror node (REST API, gRPC, importer)
+4. Deploy the JSON-RPC relay
+5. Deploy the explorer
+6. Create 30 test accounts
+7. Establish port-forwards for all services
 
-1. **Install Phase (61s)**:
-   - `brew tap hiero-ledger/tools` - Add Hiero tap
-   - `brew update` - Update Homebrew formulas
-   - `brew install solo` - Install Solo CLI and dependencies
-
-2. **Network Startup Phase (530s)**:
-   - Create a kind Kubernetes cluster
-   - Deploy the consensus node (Hedera network node)
-   - Deploy the mirror node (REST API, gRPC, importer)
-   - Deploy the JSON-RPC relay
-   - Deploy the explorer
-   - Create 30 test accounts
-   - Establish port-forwards for all services
-
-**Total Cold Start Time**: 61s + 530s = **591 seconds (9m 51s)**
+**Total Cold Start Time**: **530 seconds (8m 50s)**
 
 The measurement ends when all services are healthy and SDK transactions can be executed.
 
@@ -148,15 +138,12 @@ brew install solo
 | Install Solo | ~37s | Solo CLI via npm |
 | **Total** | **61s** | |
 
-### Cold Start Time: 591 seconds (9m 51s)
+### Cold Start Time: 530 seconds (8m 50s)
+
+*Assumes Solo is already installed. See Install Time above for installation timing.*
 
 | Phase | Duration | Description |
 |-------|----------|-------------|
-| **INSTALL PHASE** | **61s** | |
-| brew tap | ~5s | Add hiero-ledger/tools tap |
-| brew update | ~3s | Update Homebrew formulas |
-| brew install solo | ~53s | Install Solo CLI + dependencies (sqlite, zstd, node) |
-| **NETWORK STARTUP PHASE** | **530s** | |
 | Dependencies check | 0.3s | Verify helm, kubectl, kind |
 | Chart manager setup | 5s | Initialize Helm chart manager |
 | Kind cluster creation | 43s | Create Kubernetes cluster in Docker |
@@ -170,7 +157,7 @@ brew install solo
 | Explorer add | 20s | Deploy Hedera explorer |
 | Relay add | 51s | Deploy JSON-RPC relay |
 | Account creation | 16s | Create 30 test accounts |
-| **TOTAL** | **591s** | Install (61s) + Network Startup (530s) |
+| **TOTAL** | **530s** | |
 
 ### EVM Test Run: 40 seconds
 
@@ -302,16 +289,12 @@ brew install solo
 END=$(date +%s)
 echo "Install Time: $((END-START)) seconds"
 
-# COLD START - measure from install through SDK-ready
-# Reset for full cold start measurement (~591 seconds / 9m 51s)
-brew untap hiero-ledger/tools
-brew uninstall solo
+# COLD START TIME - measure network startup only (~530s)
+# (Solo is already installed from above)
 docker system prune -af --volumes
+kind delete clusters --all
 
 START=$(date +%s)
-brew tap hiero-ledger/tools
-brew update
-brew install solo
 solo one-shot single deploy --quiet-mode
 END=$(date +%s)
 echo "Cold Start Time: $((END-START)) seconds"
@@ -327,7 +310,9 @@ npx hardhat test test/HAPIBenchmark.test.ts --network solo
 kind delete cluster --name solo-cluster
 ```
 
-**Note**: Install Time (61s) is the full `brew tap` + `brew update` + `brew install solo` sequence. Cold Start Time (591s) includes both install and network startup.
+**Note**:
+- Install Time (61s) = `brew tap` + `brew update` + `brew install solo`
+- Cold Start Time (530s) = `solo one-shot single deploy` (assumes Solo already installed)
 
 ---
 
