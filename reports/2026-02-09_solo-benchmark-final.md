@@ -15,7 +15,7 @@
 | **Install Time** | 61 seconds | PASS |
 | **Cold Start Time** | 530 seconds (8m 50s) | PASS |
 | **Warm Start Time** | ~3 seconds | PASS |
-| **Shutdown Time** | 129 seconds (2m 9s) | PASS |
+| **Shutdown Time** | 125 seconds (2m 5s) | PASS |
 | **EVM Test Run** | 40 seconds | PASS |
 | **HAPI Test Run** | 6 seconds | PASS |
 
@@ -85,52 +85,92 @@ kubectl port-forward -n $NAMESPACE svc/relay-hedera-json-rpc-relay 7546:7546 &
 **Note**: Solo's `init` command is deprecated and does not reconnect to existing networks. Reconnection requires manually setting up port-forwards or running a Solo command that triggers temporary port-forwards.
 
 ### Shutdown Time
-**Definition**: Time from running state to all Hedera network components removed and kind cluster destroyed.
+**Definition**: Time from running state to all Hedera network components removed.
 
 **Solo Method**:
 ```bash
 solo one-shot single destroy --quiet-mode
-kind delete cluster --name solo-cluster  # Required - Solo does not delete the cluster
 ```
 
-**What was measured**: The complete shutdown process:
-1. `solo one-shot single destroy` - Removes all Hedera components (explorer, relay, mirror node, consensus node, charts)
-2. `kind delete cluster` - Removes the Kubernetes cluster from Docker
+**What was measured**: The complete Solo CLI shutdown process:
+1. Destroy explorer and ingress controller
+2. Destroy JSON-RPC relay
+3. Destroy mirror node (postgres, importer, REST, gRPC, web3) and delete PVCs
+4. Destroy consensus network and delete secrets
+5. Reset cluster configuration and uninstall operators
+6. Remove deployment from local config
 
-| Step | Duration | Description |
-|------|----------|-------------|
-| solo one-shot single destroy | 125s | Remove Hedera components, uninstall Helm charts, delete secrets |
-| kind delete cluster | 4s | Remove kind Kubernetes cluster |
-| **TOTAL** | **129s** | |
+**Total Shutdown Time**: **125 seconds**
 
-> **Note**: `solo one-shot single destroy` does NOT delete the kind cluster. This requires a separate `kind delete cluster` command. Solo leaves the cluster intact to allow potential redeployment, but due to ClusterRole conflicts (see Known Limitations), a fresh cold start requires destroying the cluster anyway.
+> **Note**: `solo one-shot single destroy` removes all Hedera components but leaves the kind cluster intact. The cluster can be reused for a subsequent `solo one-shot single deploy`, though ClusterRole conflicts may require manual cleanup (see Known Limitations).
 
 ### HAPI Test Run
 **Definition**: Create 3 accounts, Create FT Token, Mint Token, Transfer token. All tests run sequentially after confirmation in mirror node.
 
 **Solo Method**: `npx hardhat test test/HAPIBenchmark.test.ts --network solo`
 
-**What was measured**: Using the Hedera SDK (@hashgraph/sdk) directly via gRPC (port 50211):
-1. Create 3 new accounts using `AccountCreateTransaction`
-2. Create a fungible token using `TokenCreateTransaction`
-3. Associate token with accounts using `TokenAssociateTransaction`
-4. Mint tokens using `TokenMintTransaction`
-5. Transfer tokens between accounts using `TransferTransaction`
-6. Verify balances via Mirror Node REST API
-7. Verify balances via SDK `AccountBalanceQuery`
+**Test Context**:
+- **Framework**: Mocha test runner (via Hardhat) with @hashgraph/sdk
+- **Connection**: gRPC directly to consensus node on port 50211
+- **Operator Account**: 0.0.2 (Solo's default operator with ED25519 key)
+- **Mirror Node**: REST API on port 8081 for balance confirmation
+- **Test File**: `examples/hardhat/contract-smoke/test/HAPIBenchmark.test.ts`
+
+**What was measured**: Using the Hedera SDK (@hashgraph/sdk) directly via gRPC:
+
+| Step | Description | Hedera Transaction |
+|------|-------------|-------------------|
+| 1. Create 3 accounts | Create new accounts with ED25519 keys, 100 HBAR each | `AccountCreateTransaction` x3 |
+| 2. Create FT token | Create "Benchmark Token" (BENCH) with 2 decimals, infinite supply | `TokenCreateTransaction` |
+| 3. Associate token | Associate BENCH token with accounts 1 and 2 | `TokenAssociateTransaction` x2 |
+| 4. Mint tokens | Mint 10,000 units (100.00 BENCH) to treasury (account[0]) | `TokenMintTransaction` |
+| 5. Transfer tokens | Transfer 1,000 units to account[1] and 1,000 to account[2] | `TransferTransaction` |
+| 6. Mirror node confirm | Wait 3s for sync, query balances via REST API | HTTP GET to mirror node |
+| 7. SDK query confirm | Query balances via SDK | `AccountBalanceQuery` x3 |
+
+**Expected Final Balances** (2 decimal places):
+- account[0]: 80.00 BENCH (100.00 - 10.00 - 10.00)
+- account[1]: 10.00 BENCH
+- account[2]: 10.00 BENCH
+
+**Key Differences from EVM Test**:
+- Creates new accounts (EVM uses pre-funded accounts from Solo startup)
+- Uses native Hedera token (HTS) instead of ERC-20 contract
+- Requires token association before receiving tokens (Hedera-specific)
+- Direct gRPC to consensus node (EVM goes through JSON-RPC relay)
+- Two confirmation methods: Mirror Node REST API + SDK query
 
 ### EVM Test Run
-**Definition**: Create 3 accounts, Deploy ERC20 contract, Create Token, Mint Token, Transfer Token. All tests run sequentially after confirmation from eth_call.
+**Definition**: Deploy ERC20 contract, Mint Token, Transfer Token between 3 accounts. All tests run sequentially after confirmation from eth_call.
 
 **Solo Method**: `npx hardhat test test/EVMBenchmark.test.ts --network solo`
 
+**Test Context**:
+- **Framework**: Hardhat with ethers.js
+- **Connection**: JSON-RPC relay on port 7546
+- **Accounts**: 3 pre-funded ECDSA accounts created during Solo cold start (each has 10,000 HBAR)
+- **Contract**: `TestToken.sol` - A basic ERC-20 implementation with mint/transfer/burn functions
+- **Test File**: `examples/hardhat/contract-smoke/test/EVMBenchmark.test.ts`
+
 **What was measured**: Using ethers.js via JSON-RPC relay (port 7546):
-1. Use 3 pre-funded ECDSA accounts from Solo's account creation
-2. Deploy a standard ERC20 contract
-3. Mint tokens to the deployer account
-4. Transfer tokens from deployer to account 1
-5. Transfer tokens from deployer to account 2
-6. Verify all balances using `eth_call` (balanceOf)
+
+| Step | Description | Hedera Operation |
+|------|-------------|------------------|
+| 1. Get 3 signers | Retrieve pre-funded ECDSA accounts from Hardhat | N/A (local) |
+| 2. Deploy TestToken | Deploy ERC-20 contract ("Benchmark Token", "BENCH") | `ContractCreateTransaction` via relay |
+| 3. Mint tokens | Mint 10,000 BENCH (18 decimals) to account[0] | `ContractCallTransaction` via relay |
+| 4. Transfer to account[1] | Transfer 1,000 BENCH from account[0] to account[1] | `ContractCallTransaction` via relay |
+| 5. Transfer to account[2] | Transfer 1,000 BENCH from account[0] to account[2] | `ContractCallTransaction` via relay |
+| 6. Verify balances | Call `balanceOf()` for all 3 accounts | `eth_call` (read-only) |
+
+**Expected Final Balances**:
+- account[0]: 8,000 BENCH (10,000 - 1,000 - 1,000)
+- account[1]: 1,000 BENCH
+- account[2]: 1,000 BENCH
+
+**Network Configuration**:
+- Default wait after transaction: 2,500ms (allows mirror node sync)
+- Test timeout: 120,000ms (2 minutes)
 
 ---
 
@@ -199,23 +239,21 @@ sleep 2
 | Connection verification | ~1s | Confirm ports are responding |
 | **TOTAL** | **~3s** | |
 
-### Shutdown Time: 129 seconds (2m 9s)
+### Shutdown Time: 125 seconds (2m 5s)
 
-*Two commands required for full shutdown.*
+*Using `solo one-shot single destroy --quiet-mode`*
 
-| Step | Duration | Description |
-|------|----------|-------------|
-| solo one-shot single destroy | 125s | Remove all Hedera components |
-| ├─ Explorer destroy | 1s | Uninstall explorer chart |
-| ├─ Relay destroy | 1s | Uninstall JSON-RPC relay chart |
-| ├─ Mirror node destroy | 4s | Uninstall mirror node, delete PVCs |
-| ├─ Consensus network destroy | 74s | Delete secrets, network components |
-| ├─ Cluster config reset | 0.4s | Uninstall MinIO operator |
-| └─ Cleanup | 45s | Final cleanup and config removal |
-| kind delete cluster | 4s | Remove kind Kubernetes cluster |
-| **TOTAL** | **129s** | |
+| Phase | Duration | Description |
+|-------|----------|-------------|
+| Explorer destroy | 1s | Uninstall explorer chart |
+| Relay destroy | 1s | Uninstall JSON-RPC relay chart |
+| Mirror node destroy | 4s | Uninstall mirror node, delete PVCs |
+| Consensus network destroy | 74s | Delete secrets, network components |
+| Cluster config reset | 0.4s | Uninstall MinIO operator |
+| Config cleanup | 45s | Remove deployment from local config |
+| **TOTAL** | **125s** | |
 
-> **Note**: The `kind delete cluster` command is NOT part of Solo CLI. This is a separate command required for full cleanup.
+> **Note**: The kind cluster remains after destroy. A subsequent `solo one-shot single deploy` can reuse the cluster, though ClusterRole conflicts may occur (see Known Limitations).
 
 ### EVM Test Run: 40 seconds
 
@@ -382,10 +420,9 @@ npx hardhat test test/EVMBenchmark.test.ts --network solo
 # Run HAPI test
 npx hardhat test test/HAPIBenchmark.test.ts --network solo
 
-# SHUTDOWN TIME - measure destroy + cluster deletion (~129s)
+# SHUTDOWN TIME - measure destroy (~125s)
 START=$(date +%s)
 solo one-shot single destroy --quiet-mode
-kind delete cluster --name solo-cluster  # Required - Solo CLI doesn't delete the cluster
 END=$(date +%s)
 echo "Shutdown Time: $((END-START)) seconds"
 ```
@@ -394,7 +431,7 @@ echo "Shutdown Time: $((END-START)) seconds"
 - Install Time (61s) = `brew tap` + `brew update` + `brew install solo`
 - Cold Start Time (530s) = `solo one-shot single deploy` (assumes Solo already installed)
 - Warm Start Time (~3s) = Re-establish kubectl port-forwards to running network (requires `kubectl` command, not Solo CLI)
-- Shutdown Time (129s) = `solo one-shot single destroy` + `kind delete cluster` (kind command required for full cleanup)
+- Shutdown Time (125s) = `solo one-shot single destroy` (kind cluster remains for potential reuse)
 
 ---
 
