@@ -15,7 +15,7 @@
 | **Install Time** | 61 seconds | PASS |
 | **Cold Start Time** | 530 seconds (8m 50s) | PASS |
 | **Warm Start Time** | ~3 seconds | PASS |
-| **Shutdown Time** | <1 second | PASS |
+| **Shutdown Time** | 129 seconds (2m 9s) | PASS |
 | **EVM Test Run** | 40 seconds | PASS |
 | **HAPI Test Run** | 6 seconds | PASS |
 
@@ -85,13 +85,25 @@ kubectl port-forward -n $NAMESPACE svc/relay-hedera-json-rpc-relay 7546:7546 &
 **Note**: Solo's `init` command is deprecated and does not reconnect to existing networks. Reconnection requires manually setting up port-forwards or running a Solo command that triggers temporary port-forwards.
 
 ### Shutdown Time
-**Definition**: Time from running state to all containers stopped/removed.
+**Definition**: Time from running state to all Hedera network components removed and kind cluster destroyed.
 
-**Solo Method**: `./scripts/stop-solo.sh --keep-cluster` (preserves cluster) or `kind delete cluster` (full destruction)
+**Solo Method**:
+```bash
+solo one-shot single destroy --quiet-mode
+kind delete cluster --name solo-cluster  # Required - Solo does not delete the cluster
+```
 
-**What was measured**:
-- With `--keep-cluster`: <1 second (only stops port-forwards)
-- Full destruction (`kind delete cluster`): ~2-3 seconds
+**What was measured**: The complete shutdown process:
+1. `solo one-shot single destroy` - Removes all Hedera components (explorer, relay, mirror node, consensus node, charts)
+2. `kind delete cluster` - Removes the Kubernetes cluster from Docker
+
+| Step | Duration | Description |
+|------|----------|-------------|
+| solo one-shot single destroy | 125s | Remove Hedera components, uninstall Helm charts, delete secrets |
+| kind delete cluster | 4s | Remove kind Kubernetes cluster |
+| **TOTAL** | **129s** | |
+
+> **Note**: `solo one-shot single destroy` does NOT delete the kind cluster. This requires a separate `kind delete cluster` command. Solo leaves the cluster intact to allow potential redeployment, but due to ClusterRole conflicts (see Known Limitations), a fresh cold start requires destroying the cluster anyway.
 
 ### HAPI Test Run
 **Definition**: Create 3 accounts, Create FT Token, Mint Token, Transfer token. All tests run sequentially after confirmation in mirror node.
@@ -186,6 +198,24 @@ sleep 2
 | kubectl port-forward (RPC) | ~1s | Re-establish 7546 port-forward |
 | Connection verification | ~1s | Confirm ports are responding |
 | **TOTAL** | **~3s** | |
+
+### Shutdown Time: 129 seconds (2m 9s)
+
+*Two commands required for full shutdown.*
+
+| Step | Duration | Description |
+|------|----------|-------------|
+| solo one-shot single destroy | 125s | Remove all Hedera components |
+| ├─ Explorer destroy | 1s | Uninstall explorer chart |
+| ├─ Relay destroy | 1s | Uninstall JSON-RPC relay chart |
+| ├─ Mirror node destroy | 4s | Uninstall mirror node, delete PVCs |
+| ├─ Consensus network destroy | 74s | Delete secrets, network components |
+| ├─ Cluster config reset | 0.4s | Uninstall MinIO operator |
+| └─ Cleanup | 45s | Final cleanup and config removal |
+| kind delete cluster | 4s | Remove kind Kubernetes cluster |
+| **TOTAL** | **129s** | |
+
+> **Note**: The `kind delete cluster` command is NOT part of Solo CLI. This is a separate command required for full cleanup.
 
 ### EVM Test Run: 40 seconds
 
@@ -352,14 +382,19 @@ npx hardhat test test/EVMBenchmark.test.ts --network solo
 # Run HAPI test
 npx hardhat test test/HAPIBenchmark.test.ts --network solo
 
-# Shutdown
-kind delete cluster --name solo-cluster
+# SHUTDOWN TIME - measure destroy + cluster deletion (~129s)
+START=$(date +%s)
+solo one-shot single destroy --quiet-mode
+kind delete cluster --name solo-cluster  # Required - Solo CLI doesn't delete the cluster
+END=$(date +%s)
+echo "Shutdown Time: $((END-START)) seconds"
 ```
 
 **Note**:
 - Install Time (61s) = `brew tap` + `brew update` + `brew install solo`
 - Cold Start Time (530s) = `solo one-shot single deploy` (assumes Solo already installed)
-- Warm Start Time (~3s) = Re-establish kubectl port-forwards to running network
+- Warm Start Time (~3s) = Re-establish kubectl port-forwards to running network (requires `kubectl` command, not Solo CLI)
+- Shutdown Time (129s) = `solo one-shot single destroy` + `kind delete cluster` (kind command required for full cleanup)
 
 ---
 
