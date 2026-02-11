@@ -264,34 +264,66 @@ brew install solo
 # 🍺 /opt/homebrew/Cellar/solo/0.54.0: 27,049 files, 261.4MB, built in 37 seconds
 ```
 
-| Step | Duration | Description |
-|------|----------|-------------|
-| brew tap | ~5s | Add hiero-ledger/tools tap |
-| brew update | ~3s | Update Homebrew formulas |
-| Install dependencies | ~16s | sqlite, zstd, node |
-| Install Solo | ~37s | Solo CLI via npm |
-| **Total** | **61s** | |
+| Step | Duration | % of Total | Description |
+|------|----------|------------|-------------|
+| brew tap | ~5s | 8% | Add hiero-ledger/tools tap |
+| brew update | ~3s | 5% | Update Homebrew formulas |
+| Install dependencies | ~16s | 26% | sqlite, zstd, node |
+| **Install Solo** | **~37s** | **61%** | Solo CLI via npm |
+| **Total** | **61s** | **100%** | |
+
+**Key Finding**: Solo CLI npm installation is the largest component (61%). This includes downloading and installing the Solo npm package and its JavaScript dependencies.
 
 ### Cold Start Time: 530 seconds (8m 50s)
 
 *Assumes Solo is already installed. See Install Time above for installation timing.*
 
-| Phase | Duration | Description |
-|-------|----------|-------------|
-| Dependencies check | 0.3s | Verify helm, kubectl, kind |
-| Chart manager setup | 5s | Initialize Helm chart manager |
-| Kind cluster creation | 43s | Create Kubernetes cluster in Docker |
-| Cluster configuration | 1s | Set up cluster reference and deployment config |
-| MinIO operator | 1s | Install object storage operator |
-| Key generation | 1s | Generate gossip and TLS keys |
-| Consensus network deploy | 72s | Deploy network node pod + proxies |
-| Consensus node setup | 15s | Fetch platform software, configure node |
-| Consensus node start | 38s | Start node, wait for ACTIVE status |
-| Mirror node add | 220s | Deploy postgres, importer, REST, gRPC, web3 |
-| Explorer add | 20s | Deploy Hedera explorer |
-| Relay add | 51s | Deploy JSON-RPC relay |
-| Account creation | 16s | Create 30 test accounts |
-| **TOTAL** | **530s** | |
+| Phase | Duration | % of Total | Description |
+|-------|----------|------------|-------------|
+| Dependencies check | 0.3s | 0.1% | Verify helm, kubectl, kind |
+| Chart manager setup | 5s | 0.9% | Initialize Helm chart manager |
+| Kind cluster creation | 43s | 8.1% | Create Kubernetes cluster in Docker |
+| Cluster configuration | 1s | 0.2% | Set up cluster reference and deployment config |
+| MinIO operator | 1s | 0.2% | Install object storage operator |
+| Key generation | 1s | 0.2% | Generate gossip and TLS keys |
+| Consensus network deploy | 72s | 13.6% | Deploy network node pod + proxies |
+| Consensus node setup | 15s | 2.8% | Fetch platform software, configure node |
+| Consensus node start | 38s | 7.2% | Start node, wait for ACTIVE status |
+| **Mirror node add** | **220s** | **41.5%** | Deploy postgres, importer, REST, gRPC, web3 |
+| Explorer add | 20s | 3.8% | Deploy Hedera explorer |
+| Relay add | 51s | 9.6% | Deploy JSON-RPC relay |
+| Account creation | 16s | 3.0% | Create 30 test accounts |
+| **TOTAL** | **530s** | **100%** | |
+
+#### Cold Start Component Analysis
+
+```
+Mirror Node        ████████████████████████████████████████░░░░░░░░  41.5%  (220s)
+Consensus Deploy   █████████████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░  13.6%  (72s)
+Relay              █████████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░   9.6%  (51s)
+Kind Cluster       ████████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░   8.1%  (43s)
+Consensus Start    ███████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░   7.2%  (38s)
+Explorer           ███░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░   3.8%  (20s)
+Account Creation   ███░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░   3.0%  (16s)
+Consensus Setup    ██░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░   2.8%  (15s)
+Other              █░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░   1.6%  (8.3s)
+```
+
+**Key Findings**:
+
+| Component Group | Duration | % of Total | Notes |
+|-----------------|----------|------------|-------|
+| **Mirror Node** | 220s | 41.5% | Largest bottleneck - deploys Postgres, importer, REST API, gRPC, web3 |
+| **Consensus Node** | 125s | 23.6% | Deploy (72s) + setup (15s) + start (38s) |
+| **Infrastructure** | 92s | 17.4% | Kind cluster (43s) + relay (51s) - both are external dependencies |
+| **Auxiliary** | 36s | 6.8% | Explorer (20s) + accounts (16s) |
+| **Setup/Config** | 8.3s | 1.6% | Chart manager, MinIO, keys, etc. |
+
+**Optimization Opportunities**:
+1. **Mirror Node (41.5%)** - Largest target. Consider lazy initialization or lighter mirror node config for development.
+2. **Consensus Deploy (13.6%)** - Pod scheduling and image pulls. Pre-pulling images could help.
+3. **Relay (9.6%)** - Could potentially be optional for HAPI-only development.
+4. **Kind Cluster (8.1%)** - One-time cost if cluster is preserved between sessions.
 
 ### Warm Start Time: ~3 seconds
 
@@ -316,15 +348,20 @@ sleep 2
 
 *Using `solo one-shot single destroy --quiet-mode`*
 
-| Phase | Duration | Description |
-|-------|----------|-------------|
-| Explorer destroy | 1s | Uninstall explorer chart |
-| Relay destroy | 1s | Uninstall JSON-RPC relay chart |
-| Mirror node destroy | 4s | Uninstall mirror node, delete PVCs |
-| Consensus network destroy | 74s | Delete secrets, network components |
-| Cluster config reset | 0.4s | Uninstall MinIO operator |
-| Config cleanup | 45s | Remove deployment from local config |
-| **TOTAL** | **125s** | |
+| Phase | Duration | % of Total | Description |
+|-------|----------|------------|-------------|
+| Explorer destroy | 1s | 0.8% | Uninstall explorer chart |
+| Relay destroy | 1s | 0.8% | Uninstall JSON-RPC relay chart |
+| Mirror node destroy | 4s | 3.2% | Uninstall mirror node, delete PVCs |
+| **Consensus network destroy** | **74s** | **59.2%** | Delete secrets, network components |
+| Cluster config reset | 0.4s | 0.3% | Uninstall MinIO operator |
+| **Config cleanup** | **45s** | **36.0%** | Remove deployment from local config |
+| **TOTAL** | **125s** | **100%** | |
+
+**Key Findings**:
+- **Consensus network destroy (59.2%)** - Deleting Kubernetes secrets is the slowest operation
+- **Config cleanup (36.0%)** - Removing deployment config and cleanup tasks
+- Chart uninstalls are fast (<5% combined) because Helm just removes manifests
 
 > **Note**: The kind cluster remains after destroy. A subsequent `solo one-shot single deploy` can reuse the cluster, though ClusterRole conflicts may occur (see Known Limitations).
 
